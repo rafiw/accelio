@@ -1327,7 +1327,7 @@ int xio_on_new_message(struct xio_session *s,
 
 	task->session		= session;
 	task->connection	= connection;
-
+	DEBUG_LOG("xio_on_new_message tlv_type %u\n",task->tlv_type);
 	switch (task->tlv_type) {
 	case XIO_MSG_REQ:
 	case XIO_ONE_WAY_REQ:
@@ -1400,7 +1400,7 @@ int xio_on_send_completion(struct xio_session *session,
 	int			xmit = 0;
 
 	connection = task->connection;
-
+	DEBUG_LOG("xio_on_send_completion tlv_type %u\n",task->tlv_type);
 	switch (task->tlv_type) {
 	case XIO_MSG_REQ:
 	case XIO_SESSION_SETUP_REQ:

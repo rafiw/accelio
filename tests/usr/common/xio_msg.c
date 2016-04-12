@@ -157,10 +157,10 @@ void msg_api_free(struct msg_params *msg_params)
 int msg_api_init(struct msg_params *msg_params,
 		 size_t hdrlen, size_t datalen, int is_server)
 {
-	const char	*req_hdr = "hello world request header";
-	const char	*req_data = "hello world request data";
-	const char	*rsp_hdr =  "hello world response header";
-	const char	*rsp_data = "hello world response data";
+	const char	*req_hdr = "req-header";
+	const char	*req_data = "req-data";
+	const char	*rsp_hdr =  "res-header";
+	const char	*rsp_data = "res-data";
 	const char	*ptr;
 	size_t		len;
 	int		pagesize = sysconf(_SC_PAGESIZE);

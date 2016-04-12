@@ -1449,6 +1449,7 @@ static int xio_nexus_on_new_message(struct xio_nexus *nexus,
 	struct xio_task	*task = event_data->msg.task;
 
 	task->nexus = nexus;
+	DEBUG_LOG("xio_nexus_on_new_message %u\n",task->tlv_type);
 	switch (task->tlv_type) {
 	case XIO_NEXUS_SETUP_RSP:
 		retval = xio_nexus_on_recv_setup_rsp(nexus, task);
@@ -1489,7 +1490,7 @@ static int xio_nexus_on_send_completion(struct xio_nexus *nexus,
 {
 	int	retval = -1;
 	struct xio_task	*task = event_data->msg.task;
-
+	DEBUG_LOG("xio_nexus_on_send_completion %u\n",task->tlv_type);
 	switch (task->tlv_type) {
 	case XIO_NEXUS_SETUP_RSP:
 		retval = xio_nexus_on_send_setup_rsp_comp(nexus, task);
@@ -1614,7 +1615,7 @@ static int xio_nexus_on_transport_event(void *observer, void *sender,
 	int				 tx = 1;
 	union xio_transport_event_data *ev_data =
 			(union xio_transport_event_data *)event_data;
-
+	DEBUG_LOG("xio_nexus_on_transport_event %d\n",event);
 	switch (event) {
 	case XIO_TRANSPORT_EVENT_NEW_MESSAGE:
 /*

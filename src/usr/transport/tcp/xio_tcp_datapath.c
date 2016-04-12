@@ -80,7 +80,7 @@ static int xio_tcp_send_work(int fd, void **buf, uint32_t *len, int block)
 				return -1;
 			}
 		} else {
-			*len -= retval;
+			DEBUG_LOG("===SEND fd: %d len: %u [%.20s]\n",fd, *len, (char*)*buf);			*len -= retval;
 			inc_ptr(*buf, retval);
 		}
 	}
@@ -98,6 +98,7 @@ static int xio_tcp_sendmsg_work(int fd,
 	int			retval = 0, tmp_bytes, sent_bytes = 0;
 	int			eagain_count = TX_EAGAIN_RETRY;
 	unsigned int		i;
+	unsigned int		j;
 
 	while (xio_send->tot_iov_byte_len) {
 		retval = sendmsg(fd, &xio_send->msg, MSG_NOSIGNAL);
@@ -112,6 +113,12 @@ static int xio_tcp_sendmsg_work(int fd,
 				return -1;
 			}
 		} else {
+			DEBUG_LOG("===SENDMSG fd: %d len: %zd \n",
+					fd, xio_send->msg.msg_iovlen);
+			for (j=0 ; j < xio_send->msg.msg_iovlen; j++)
+				DEBUG_LOG("===len: %zd msg: [%.20s]\n",
+					xio_send->msg.msg_iov[j].iov_len,
+					(char*)xio_send->msg.msg_iov[j].iov_base);
 			sent_bytes += retval;
 			xio_send->tot_iov_byte_len -= retval;
 
@@ -553,6 +560,9 @@ static int xio_tcp_prep_req_header(struct xio_tcp_transport *tcp_hndl,
 
 	/* write the payload header */
 	if (ulp_hdr_len) {
+		DEBUG_LOG("xio_tcp_prep_req_header msg: [%s] len %zd\n",
+				(char*)task->omsg->out.header.iov_base,
+				task->omsg->out.header.iov_len);
 		if (xio_mbuf_write_array(
 		    &task->mbuf,
 		    task->omsg->out.header.iov_base,
@@ -986,7 +996,7 @@ int xio_tcp_xmit(struct xio_tcp_transport *tcp_hndl)
 			(struct xio_tcp_task *)next_task->dd_data : NULL;
 
 		tcp_task = (struct xio_tcp_task *)task->dd_data;
-
+		DEBUG_LOG("Handling task with type %u\n",task->tlv_type);
 		switch (tcp_task->txd.stage) {
 		case XIO_TCP_TX_BEFORE:
 			xio_tcp_write_sn(task, tcp_hndl->sn);
@@ -1384,6 +1394,8 @@ size_t xio_tcp_dual_sock_set_txd(struct xio_task *task)
 
 	iov_len = xio_mbuf_get_curr_offset(&task->mbuf)
 			- tcp_task->txd.ctl_msg_len;
+	DEBUG_LOG("curr offset is %zd\n",xio_mbuf_get_curr_offset(&task->mbuf));
+	DEBUG_LOG("mbuf is [%0.25s]\n",(char*)task->mbuf.curr);
 	tcp_task->txd.msg_iov[0].iov_len = iov_len;
 	inc_ptr(tcp_task->txd.msg_iov[0].iov_base, tcp_task->txd.ctl_msg_len);
 
@@ -1427,7 +1439,7 @@ static int xio_tcp_send_req(struct xio_tcp_transport *tcp_hndl,
 
 	/* set the length */
 	tlv_len = tcp_hndl->sock.ops->set_txd(task);
-
+	DEBUG_LOG("tlv_len %lu\n",tlv_len);
 	/* add tlv */
 	if (xio_mbuf_write_tlv(&task->mbuf, task->tlv_type, tlv_len) != 0) {
 		ERROR_LOG("write tlv failed\n");
@@ -1776,7 +1788,7 @@ static int xio_tcp_send_rsp(struct xio_tcp_transport *tcp_hndl,
 
 	/* set the length */
 	tlv_len = tcp_hndl->sock.ops->set_txd(task);
-
+	DEBUG_LOG("tlv_len %lu\n",tlv_len);
 	/* add tlv */
 	if (xio_mbuf_write_tlv(&task->mbuf, task->tlv_type, tlv_len) != 0)
 		goto cleanup;
@@ -1982,6 +1994,8 @@ int xio_tcp_recv_ctl_work(struct xio_tcp_transport *tcp_hndl, int fd,
 			retval = recv(fd, (char *)tcp_hndl->tmp_rx_buf,
 				      TMP_RX_BUF_SIZE, 0);
 			if (retval > 0) {
+				DEBUG_LOG("===RECV len: %d msg [%0.20s]\n",
+						retval,(char *)tcp_hndl->tmp_rx_buf);
 				tcp_hndl->tmp_rx_buf_len = retval;
 				tcp_hndl->tmp_rx_buf_cur = tcp_hndl->tmp_rx_buf;
 			} else if (retval == 0) {
@@ -2042,13 +2056,19 @@ int xio_tcp_recvmsg_work(struct xio_tcp_transport *tcp_hndl, int fd,
 	unsigned int		i;
 	int			retval;
 	int			recv_bytes = 0, tmp_bytes;
-
+	unsigned int j;
 	if (xio_recv->tot_iov_byte_len == 0)
 		return 1;
 
 	while (xio_recv->tot_iov_byte_len) {
 		retval = recvmsg(fd, &xio_recv->msg, 0);
 		if (retval > 0) {
+			DEBUG_LOG("===RECVMSG fd: %d len %zd\n",
+					fd,xio_recv->msg.msg_iovlen);
+			for (j=0;j<xio_recv->msg.msg_iovlen;j++)
+				DEBUG_LOG("==========================len:%zd %.20s\n",
+						xio_recv->msg.msg_iov[j].iov_len,
+						(char*)xio_recv->msg.msg_iov[j].iov_base);
 			recv_bytes += retval;
 			xio_recv->tot_iov_byte_len -= retval;
 
@@ -2187,7 +2207,9 @@ static int xio_tcp_rd_req_header(struct xio_tcp_transport *tcp_hndl,
 	sgtbl		= xio_sg_table_get(&task->imsg.in);
 	sgtbl_ops	= (struct xio_sg_table_ops *)
 				xio_sg_table_ops_get(task->imsg.in.sgl_type);
-
+	DEBUG_LOG("xio_tcp_rd_req_header assing in buf len %zd msg: [%s]\n",
+			(char*)task->imsg.in.header.iov_len,
+			(char*)task->imsg.in.header.iov_base);
 	xio_tcp_assign_in_buf(tcp_hndl, task, &user_assign_flag);
 	if (user_assign_flag) {
 		/* if user does not have buffers ignore */
@@ -2339,8 +2361,11 @@ static int xio_tcp_on_recv_req_header(struct xio_tcp_transport *tcp_hndl,
 
 	clr_bits(XIO_MSG_HINT_ASSIGNED_DATA_IN_BUF, &imsg->hints);
 
-	if (req_hdr.ulp_hdr_len)
+	if (req_hdr.ulp_hdr_len){
 		imsg->in.header.iov_base	= ulp_hdr;
+		DEBUG_LOG("xio_tcp_on_recv_req_header len: %zd msg: [%s]\n",
+				req_hdr.ulp_hdr_len,ulp_hdr);
+	}
 	else
 		imsg->in.header.iov_base	= NULL;
 
@@ -2494,6 +2519,8 @@ static int xio_tcp_on_recv_rsp_header(struct xio_tcp_transport *tcp_hndl,
 	if (rsp_hdr.ulp_hdr_len) {
 		imsg->in.header.iov_base	= ulp_hdr;
 		imsg->in.header.iov_len		= rsp_hdr.ulp_hdr_len;
+		DEBUG_LOG("xio_tcp_on_recv_rsp_header len %zd msg [%s]\n",
+				rsp_hdr.ulp_hdr_len,(char*)ulp_hdr);
 	} else {
 		imsg->in.header.iov_base	= NULL;
 		imsg->in.header.iov_len		= 0;
@@ -2609,11 +2636,11 @@ static int xio_tcp_on_recv_rsp_data(struct xio_tcp_transport *tcp_hndl,
 	if (omsg->in.header.iov_base) {
 		/* copy header to user buffers */
 		size_t hdr_len = 0;
-
 		if (imsg->in.header.iov_len > omsg->in.header.iov_len)  {
 			hdr_len = omsg->in.header.iov_len;
 			task->status = XIO_E_MSG_SIZE;
 		} else {
+			DEBUG_LOG("xio_tcp_on_recv_rsp_data ERRRORRROROROR\n\n\n\n\n");
 			hdr_len = imsg->in.header.iov_len;
 			task->status = XIO_E_SUCCESS;
 		}
@@ -3051,7 +3078,7 @@ static int xio_tcp_send_cancel(struct xio_tcp_transport *tcp_hndl,
 	tcp_task->txd.tot_iov_byte_len	 = 0;
 
 	tlv_len = tcp_hndl->sock.ops->set_txd(task);
-
+	DEBUG_LOG("tlv_len %lu\n",tlv_len);
 	/* add tlv */
 	if (xio_mbuf_write_tlv(&task->mbuf, task->tlv_type, (uint16_t)tlv_len)
 		!= 0)
@@ -3143,7 +3170,7 @@ int xio_tcp_rx_data_handler(struct xio_tcp_transport *tcp_hndl, int batch_nr)
 
 	while (task && batch_count < batch_nr) {
 		tcp_task = (struct xio_tcp_task *)task->dd_data;
-
+		DEBUG_LOG("Handling tlv %u\n",task->tlv_type);
 		if (tcp_task->rxd.stage != XIO_TCP_RX_IO_DATA)
 			break;
 

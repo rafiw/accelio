@@ -287,14 +287,17 @@ static int assign_data_in_buf(struct xio_msg *msg, void *cb_user_context)
 	int			nents = vmsg_sglist_nents(&msg->in);
 	int i;
 
-	if (test_params->reg_mem.addr == NULL)
+	if (test_params->reg_mem.addr == NULL) {
 		xio_mem_alloc(XIO_READ_BUF_LEN, &test_params->reg_mem);
+	}
 
 	for (i = 0; i < nents; i++) {
 		sglist[i].iov_base = test_params->reg_mem.addr;
 		sglist[i].mr = test_params->reg_mem.mr;
 	}
-
+	printf("==================XIO_CLINET assign %zd %s\n",
+			msg->in.header.iov_len,
+			(char*)msg->in.header.iov_base);
 	return 0;
 }
 

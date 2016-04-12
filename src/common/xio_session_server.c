@@ -614,7 +614,7 @@ int xio_server_on_nexus_event(void *observer, void *sender, int event,
 	int			retval  = 0;
 	union xio_nexus_event_data *event_data = (union xio_nexus_event_data *)
 							_event_data;
-
+	DEBUG_LOG("xio_on_send_completion event %d\n",event);
 	switch (event) {
 	case XIO_NEXUS_EVENT_NEW_MESSAGE:
 /*
