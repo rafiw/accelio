@@ -741,7 +741,7 @@ int main(int argc, char *argv[])
 	int				error;
 	int				retval;
 	static int			chain_messages = CHAIN_MESSAGES;
-
+	int 				opt;
 	if (parse_cmdline(&test_config, argc, argv) != 0)
 		return -1;
 
@@ -764,6 +764,10 @@ int main(int argc, char *argv[])
 	xio_set_opt(NULL,
 		    XIO_OPTLEVEL_ACCELIO, XIO_OPTNAME_MAX_OUT_IOVLEN,
 		    &test_config.out_iov_len, sizeof(int));
+	opt = 0;
+	xio_set_opt(NULL,
+		    XIO_OPTLEVEL_TCP, XIO_OPTNAME_TCP_DUAL_STREAM,
+		    &opt, sizeof(int));
 
 	/* prepare buffers for this test */
 	if (msg_api_init(&test_params.msg_params,
