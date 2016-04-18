@@ -2360,11 +2360,12 @@ static int xio_tcp_on_recv_req_header(struct xio_tcp_transport *tcp_hndl,
 	tcp_task->out_tcp_op = (enum xio_tcp_op_code)req_hdr.out_tcp_op;
 	tcp_task->in_tcp_op = (enum xio_tcp_op_code)req_hdr.in_tcp_op;
 
-	tcp_hndl->sock.ops->set_rxd(task, ulp_hdr, req_hdr.ulp_hdr_len +
-			req_hdr.ulp_pad_len + (uint32_t)req_hdr.ulp_imm_len);
+
 
 	switch (req_hdr.out_tcp_op) {
 	case XIO_TCP_SEND:
+		tcp_hndl->sock.ops->set_rxd(task, ulp_hdr, req_hdr.ulp_hdr_len +
+				req_hdr.ulp_pad_len + (uint32_t)req_hdr.ulp_imm_len);
 		sgtbl		= xio_sg_table_get(&imsg->in);
 		sgtbl_ops	= (struct xio_sg_table_ops *)
 					xio_sg_table_ops_get(imsg->in.sgl_type);
@@ -2386,6 +2387,8 @@ static int xio_tcp_on_recv_req_header(struct xio_tcp_transport *tcp_hndl,
 		}
 		break;
 	case XIO_TCP_READ:
+		tcp_hndl->sock.ops->set_rxd(task, ulp_hdr,
+				req_hdr.ulp_hdr_len + req_hdr.ulp_pad_len);
 		/* handle RDMA READ equivalent. */
 		TRACE_LOG("tcp read header\n");
 		retval = xio_tcp_rd_req_header(tcp_hndl, task);
