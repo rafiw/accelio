@@ -1069,8 +1069,8 @@ int xio_tcp_xmit(struct xio_tcp_transport *tcp_hndl)
 							XIO_ECONNABORTED ||
 					/*EPIPE is not rellevant for Windows*/
 					xio_get_last_socket_error() == EPIPE) {
-					DEBUG_LOG("tcp trans got reset ");
-					DEBUG_LOG("tcp_hndl=%p\n", tcp_hndl);
+					DEBUG_LOG("tcp trans got reset "
+						  "tcp_hndl=%p\n", tcp_hndl);
 					xio_tcp_disconnect_helper(tcp_hndl);
 					return 0;
 				}
@@ -1439,7 +1439,7 @@ static int xio_tcp_send_req(struct xio_tcp_transport *tcp_hndl,
 
 	/* set the length */
 	tlv_len = tcp_hndl->sock.ops->set_txd(task);
-	DEBUG_LOG("tlv_len %lu\n",tlv_len);
+	DEBUG_LOG("req tlv_len %lu\n",tlv_len);
 	/* add tlv */
 	if (xio_mbuf_write_tlv(&task->mbuf, task->tlv_type, tlv_len) != 0) {
 		ERROR_LOG("write tlv failed\n");
@@ -1788,7 +1788,7 @@ static int xio_tcp_send_rsp(struct xio_tcp_transport *tcp_hndl,
 
 	/* set the length */
 	tlv_len = tcp_hndl->sock.ops->set_txd(task);
-	DEBUG_LOG("tlv_len %lu\n",tlv_len);
+	DEBUG_LOG("rsp tlv_len %lu\n",tlv_len);
 	/* add tlv */
 	if (xio_mbuf_write_tlv(&task->mbuf, task->tlv_type, tlv_len) != 0)
 		goto cleanup;
@@ -3078,7 +3078,7 @@ static int xio_tcp_send_cancel(struct xio_tcp_transport *tcp_hndl,
 	tcp_task->txd.tot_iov_byte_len	 = 0;
 
 	tlv_len = tcp_hndl->sock.ops->set_txd(task);
-	DEBUG_LOG("tlv_len %lu\n",tlv_len);
+	DEBUG_LOG("cancel tlv_len %lu\n",tlv_len);
 	/* add tlv */
 	if (xio_mbuf_write_tlv(&task->mbuf, task->tlv_type, (uint16_t)tlv_len)
 		!= 0)

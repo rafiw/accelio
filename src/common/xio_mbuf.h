@@ -181,7 +181,7 @@ static inline int xio_mbuf_read_first_tlv(struct xio_mbuf *mbuf)
 
 	len = xio_read_tlv(&tlv->type, &tlv->len,
 			   &tlv->val, (uint8_t *)tlv->head);
-	if (len == -1 || (sum_to_ptr(tlv->head, len) >  mbuf->buf.tail)) {
+	if (len == -1 || (sum_to_ptr(tlv->head, len) >  mbuf->buf.tail) || tlv->type ==0) {
 		ERROR_LOG("xio_mbuf_first_read_tlv failed. tlv.head:%p, " \
 			  "len:%d, buf.tail:%p\n",
 			  tlv->head, len, mbuf->buf.tail);
