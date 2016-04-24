@@ -104,13 +104,17 @@ static struct xio_test_config  test_config = {
 static void process_request(struct xio_msg *msg)
 {
 	static int cnt;
-
+	struct xio_iovec_ex *sglist = vmsg_sglist(&msg->in);
 	if (msg == NULL) {
 		cnt = 0;
 		return;
 	}
+	printf("**** message [%lu] %s - %s\n",
+	       (msg->sn+1),
+	       (char *)msg->in.header.iov_base,
+	       (char *)sglist[0].iov_base);
 	if (++cnt == PRINT_COUNTER) {
-		struct xio_iovec_ex *sglist = vmsg_sglist(&msg->in);
+
 
 		printf("**** message [%lu] %s - %s\n",
 		       (msg->sn+1),
