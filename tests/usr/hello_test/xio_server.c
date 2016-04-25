@@ -105,12 +105,14 @@ static void process_request(struct xio_msg *msg)
 {
 	static int cnt;
 	struct xio_iovec_ex *sglist = vmsg_sglist(&msg->in);
+	int	inents = vmsg_sglist_nents(&msg->in);
 	if (msg == NULL) {
 		cnt = 0;
 		return;
 	}
-	printf("**** message [%lu] %s - %s\n",
+	printf("**** message [%lu] nents %d %s - %.400s\n\n",
 	       (msg->sn+1),
+	       inents,
 	       (char *)msg->in.header.iov_base,
 	       (char *)sglist[0].iov_base);
 	if (++cnt == PRINT_COUNTER) {

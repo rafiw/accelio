@@ -175,8 +175,9 @@ static void process_response(struct test_params *test_params,
 		test_params->disconnect_nr =
 			test_params->stat.print_counter * DISCONNECT_FACTOR;
 	}
-	printf("**** message [%zd] %s - %s\n",
+	printf("**** message [%zd] nents %d %s - %.400s\n\n",
 			       (rsp->request->sn + 1),
+			       inents,
 			       (char *)rsp->in.header.iov_base,
 			       (char *)(inents > 0 ? isglist[0].iov_base : NULL));
 
