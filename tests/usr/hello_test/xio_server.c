@@ -110,6 +110,7 @@ static void process_request(struct xio_msg *msg)
 		cnt = 0;
 		return;
 	}
+	if (msg->in.header.iov_len)
 	printf("**** message [%lu] nents %d %s - %.400s\n\n",
 	       (msg->sn+1),
 	       inents,
@@ -117,7 +118,7 @@ static void process_request(struct xio_msg *msg)
 	       (char *)sglist[0].iov_base);
 	if (++cnt == PRINT_COUNTER) {
 
-
+		if (msg->in.header.iov_len)
 		printf("**** message [%lu] %s - %s\n",
 		       (msg->sn+1),
 		       (char *)msg->in.header.iov_base,
@@ -301,6 +302,7 @@ static int assign_data_in_buf(struct xio_msg *msg, void *cb_user_context)
 		sglist[i].iov_base = test_params->reg_mem.addr;
 		sglist[i].mr = test_params->reg_mem.mr;
 	}
+	if (msg->in.header.iov_len)
 	printf("==================XIO_CLINET assign %zd %s\n",
 			msg->in.header.iov_len,
 			(char*)msg->in.header.iov_base);

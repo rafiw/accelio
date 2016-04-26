@@ -520,6 +520,7 @@ void xio_tcp_flush_tx_handler(void *xio_tcp_hndl)
 {
 	struct xio_tcp_transport *tcp_hndl = (struct xio_tcp_transport *)
 						xio_tcp_hndl;
+	DEBUG_LOG("RAFI\n");
 	xio_tcp_xmit(tcp_hndl);
 }
 
@@ -573,6 +574,7 @@ void xio_tcp_ctl_ready_ev_handler(int fd, int events, void *user_context)
 	if (events & XIO_POLLOUT) {
 		xio_context_modify_ev_handler(tcp_hndl->base.ctx, fd,
 					      XIO_POLLIN | XIO_POLLRDHUP);
+		DEBUG_LOG("RAFI\n");
 		xio_tcp_xmit(tcp_hndl);
 	}
 
@@ -600,6 +602,7 @@ void xio_tcp_data_ready_ev_handler(int fd, int events, void *user_context)
 	if (events & XIO_POLLOUT) {
 		xio_context_modify_ev_handler(tcp_hndl->base.ctx, fd,
 					      XIO_POLLIN | XIO_POLLRDHUP);
+		DEBUG_LOG("RAFI\n");
 		xio_tcp_xmit(tcp_hndl);
 	}
 

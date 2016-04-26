@@ -897,8 +897,10 @@ static void xio_tcp_tx_completion_handler(void *xio_task)
     if (tcp_hndl->state == XIO_TRANSPORT_STATE_DISCONNECTED) {
         xio_context_add_event(tcp_hndl->base.ctx, &tcp_hndl->disconnect_event);
     } else {
-        if (tcp_hndl->tx_ready_tasks_num)
+        if (tcp_hndl->tx_ready_tasks_num) {
+        	DEBUG_LOG("RAFI\n");
             xio_tcp_xmit(tcp_hndl);
+        }
     }
 }
 
@@ -1454,7 +1456,7 @@ static int xio_tcp_send_req(struct xio_tcp_transport *tcp_hndl,
 	list_move_tail(&task->tasks_list_entry, &tcp_hndl->tx_ready_list);
 
 	tcp_hndl->tx_ready_tasks_num++;
-
+	DEBUG_LOG("RAFI\n");
 	retval = xio_tcp_xmit(tcp_hndl);
 	if (retval) {
 		if (xio_errno() != XIO_EAGAIN) {
@@ -1796,7 +1798,7 @@ static int xio_tcp_send_rsp(struct xio_tcp_transport *tcp_hndl,
 	list_move_tail(&task->tasks_list_entry, &tcp_hndl->tx_ready_list);
 
 	tcp_hndl->tx_ready_tasks_num++;
-
+	DEBUG_LOG("RAFI\n");
 	retval = xio_tcp_xmit(tcp_hndl);
 	if (retval) {
 		/* no need xio_get_last_error here */
@@ -2144,6 +2146,11 @@ void xio_tcp_dual_sock_set_rxd(struct xio_task *task,
 			       void *buf, uint32_t len)
 {
 	XIO_TO_TCP_TASK(task, tcp_task);
+	if (task->imsg.in.header.iov_len)
+		DEBUG_LOG("RAFI SET_RXD len is %u in in header len is %zd rxd_msg %zd\n",
+			len,
+			task->imsg.in.header.iov_len,
+			tcp_task->rxd.msg_iov->iov_len);
 	tcp_task->rxd.msg_iov[0].iov_base = buf;
 	tcp_task->rxd.msg_iov[0].iov_len = len;
 	tcp_task->rxd.tot_iov_byte_len = len;
@@ -2207,8 +2214,9 @@ static int xio_tcp_rd_req_header(struct xio_tcp_transport *tcp_hndl,
 	sgtbl		= xio_sg_table_get(&task->imsg.in);
 	sgtbl_ops	= (struct xio_sg_table_ops *)
 				xio_sg_table_ops_get(task->imsg.in.sgl_type);
-	DEBUG_LOG("xio_tcp_rd_req_header assing in buf len %zd msg: [%s]\n",
-			(char*)task->imsg.in.header.iov_len,
+	if (task->imsg.in.header.iov_len)
+		DEBUG_LOG("xio_tcp_rd_req_header assing in buf len %zd msg: [%s]\n",
+			task->imsg.in.header.iov_len,
 			(char*)task->imsg.in.header.iov_base);
 	xio_tcp_assign_in_buf(tcp_hndl, task, &user_assign_flag);
 	if (user_assign_flag) {
@@ -2534,6 +2542,8 @@ static int xio_tcp_on_recv_rsp_header(struct xio_tcp_transport *tcp_hndl,
 		tcp_hndl->sock.ops->set_rxd(task, ulp_hdr, rsp_hdr.ulp_hdr_len +
 					    rsp_hdr.ulp_pad_len +
 					    (uint32_t)rsp_hdr.ulp_imm_len);
+		if (rsp_hdr.ulp_hdr_len)
+			DEBUG_LOG("RAFI header %u\n",rsp_hdr.ulp_hdr_len);
 		/* if data arrived, set the pointers */
 		if (rsp_hdr.ulp_imm_len) {
 			tbl_set_nents(isgtbl_ops, isgtbl, 1);
@@ -2549,6 +2559,7 @@ static int xio_tcp_on_recv_rsp_header(struct xio_tcp_transport *tcp_hndl,
 		}
 		break;
 	case XIO_TCP_WRITE:
+		DEBUG_LOG("RAFI header ulp %u header %u sge %u\n",rsp_hdr.ulp_hdr_len,imsg->in.header.iov_len,tcp_task->rsp_out_num_sge);
 		tcp_hndl->sock.ops->set_rxd(task->sender_task, ulp_hdr,
 					    rsp_hdr.ulp_hdr_len +
 					    rsp_hdr.ulp_pad_len);
@@ -2574,11 +2585,16 @@ static int xio_tcp_on_recv_rsp_header(struct xio_tcp_transport *tcp_hndl,
 					tcp_task->rsp_out_sge[i].length;
 			sg = sge_next(isgtbl_ops, isgtbl, sg);
 		}
-
+		DEBUG_LOG("RAFI1 bytes %ul msg len %u\n",
+				tcp_sender_task->rxd.tot_iov_byte_len,
+				tcp_sender_task->rxd.msg_len);
 		tcp_sender_task->rxd.msg_len +=
 				tcp_task->rsp_out_num_sge;
 		tcp_sender_task->rxd.tot_iov_byte_len +=
 				rsp_hdr.ulp_imm_len;
+		DEBUG_LOG("RAFI2 bytes %ul msg len %u\n",
+				tcp_sender_task->rxd.tot_iov_byte_len,
+				tcp_sender_task->rxd.msg_len);
 		if (tcp_sender_task->rxd.msg.msg_iovlen)
 			tcp_sender_task->rxd.msg.msg_iov =
 					tcp_sender_task->rxd.msg_iov;
@@ -2639,6 +2655,7 @@ static int xio_tcp_on_recv_rsp_data(struct xio_tcp_transport *tcp_hndl,
 		if (imsg->in.header.iov_len > omsg->in.header.iov_len)  {
 			hdr_len = omsg->in.header.iov_len;
 			task->status = XIO_E_MSG_SIZE;
+			DEBUG_LOG("in if len1 %zd len2 %zd\n",imsg->in.header.iov_len,hdr_len);
 		} else {
 			DEBUG_LOG("xio_tcp_on_recv_rsp_data ERRRORRROROROR\n\n\n\n\n");
 			hdr_len = imsg->in.header.iov_len;
@@ -3193,7 +3210,7 @@ int xio_tcp_rx_data_handler(struct xio_tcp_transport *tcp_hndl, int batch_nr)
 			xio_tcp_disconnect_helper(tcp_hndl);
 			return -1;
 		}
-
+		DEBUG_LOG("RAFI iovlen is %zd\n",rxd_work->msg.msg_iovlen);
 		for (i = 0; i < rxd_work->msg.msg_iovlen; i++) {
 			tcp_hndl->tmp_work.msg_iov
 			[tcp_hndl->tmp_work.msg_len].iov_base =
@@ -3326,6 +3343,7 @@ int xio_tcp_rx_data_handler(struct xio_tcp_transport *tcp_hndl, int batch_nr)
 	}
 
 	if (tcp_hndl->tx_ready_tasks_num) {
+		DEBUG_LOG("RAFI\n");
 		retval = xio_tcp_xmit(tcp_hndl);
 		if (retval < 0) {
 			if (xio_errno() != XIO_EAGAIN) {
@@ -3489,6 +3507,7 @@ int xio_tcp_rx_ctl_handler(struct xio_tcp_transport *tcp_hndl, int batch_nr)
 	count = retval;
 
 	if (tcp_hndl->tx_ready_tasks_num) {
+		DEBUG_LOG("RAFI\n");
 		retval = xio_tcp_xmit(tcp_hndl);
 		if (retval < 0) {
 			if (xio_errno() != XIO_EAGAIN) {
