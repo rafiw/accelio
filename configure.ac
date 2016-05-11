@@ -54,6 +54,30 @@ AM_CONDITIONAL(HAVE_INFINIBAND_VERBS, test "x$mypj_found_verbs_headers" = "xyes"
 
 AS_IF([test "x$mypj_found_numa_headers" != "xyes"],
       [AC_MSG_ERROR([Unable to find the numactl-devel header files])])
+
+##########################################################################
+# ucx enabled
+##########################################################################
+# usage: ./configure --enable-ucx=yes
+#
+AC_MSG_CHECKING([whether to build ucx transport])
+AC_ARG_ENABLE([ucx],
+	      [AS_HELP_STRING([--enable-ucx],
+			      [enable ucx transport (defulat is no)])],
+			       [enable_ucx="$enableval"],
+			       [enable_ucx=no])
+AC_MSG_RESULT([$enable_ucx])
+
+if test "$enable_ucx" = "yes"; then
+	AC_CHECK_HEADERS([ucp/api/ucp.h],
+			 [mypj_found_ucx_headers=yes;],
+			 [AC_MSG_WARN(could not find ucx files);mypj_found_ucx_headers=no;])
+else
+	mypj_found_ucx_headers=no
+fi
+
+AM_CONDITIONAL(UCX, test "x$mypj_found_ucx_headers" = "xyes")
+
 # Checks for typedefs, structures, and compiler characteristics.
 AC_TYPE_SIZE_T
 
