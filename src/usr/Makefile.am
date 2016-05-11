@@ -18,6 +18,18 @@ else
     libxio_rdma_ldflags =
 endif
 
+if UCX
+    libxio_ucx_srcdir = -I$(top_srcdir)/src/usr/transport/ucx
+    libxio_ucx_headers = ./transport/ucx/xio_ucx_transport.h
+    libxio_ucx_sources = ./transport/ucx/xio_ucx_management.c  \
+                          ./transport/ucx/xio_ucx_datapath.c
+    libxio_ucx_ldflags = -lucp
+else
+    libxio_ucx_srcdir =
+    libxio_ucx_headers =
+    libxio_ucx_sources =
+    libxio_ucx_ldflags =
+endif
 AM_CFLAGS = -fPIC -DPIC  			\
 	    -I$(top_srcdir)/src/libxio_os/linuxapp	\
 	    -I$(top_srcdir)/src/usr 		\
@@ -75,6 +87,7 @@ libxio_headers = 	./xio/get_clock.h 			\
 			./transport/xio_mempool.h		\
 			./transport/xio_usr_transport.h		\
 			$(libxio_rdma_headers)			\
+			$(libxio_ucx_headers)		\
 			./transport/tcp/xio_tcp_transport.h	\
 			../common/xio_workqueue.h		\
 			../common/xio_workqueue_priv.h		\
@@ -127,6 +140,7 @@ libxio_la_SOURCES =	$(libxio_headers)		\
 			./xio/xio_sg_iovptr.c		\
 			./xio/xio_sg_table.c		\
 			$(libxio_rdma_sources)		\
+			$(libxio_ucx_sources)		\
 			./transport/tcp/xio_tcp_management.c	\
 			./transport/tcp/xio_tcp_datapath.c	\
 			./transport/xio_mempool.c	\
@@ -151,7 +165,7 @@ libxio_la_SOURCES =	$(libxio_headers)		\
 #		      -lrdmacm -libverbs -lrt -ldl
 
 libxio_la_LDFLAGS = -lnuma $(libxio_rdma_ldflags) -ldl -lrt -lpthread \
-		     $(libxio_version_script)
+		     $(libxio_version_script) $(libxio_ucx_ldflags)
 
 libxio_la_DEPENDENCIES =  $(top_srcdir)/src/usr/libxio.map
 
