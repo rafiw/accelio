@@ -57,12 +57,15 @@ extern struct xio_transport xio_rdma_transport;
 
 struct xio_transport *xio_rdma_get_transport_func_list(void);
 struct xio_transport *xio_tcp_get_transport_func_list(void);
+struct xio_transport *xio_ucx_get_transport_func_list(void);
 
 typedef struct xio_transport *(*get_transport_func_list_t)(void);
 
 static get_transport_func_list_t  transport_func_list_tbl[] = {
 #ifdef HAVE_INFINIBAND_VERBS_H
 	xio_rdma_get_transport_func_list,
+#endif
+#ifdef UCX
 	xio_ucx_get_transport_func_list,
 #endif
 	xio_tcp_get_transport_func_list,

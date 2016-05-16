@@ -64,7 +64,9 @@
 #include "xio_usr_transport.h"
 #include "xio_mempool.h"
 #include "xio_tcp_transport.h"
-
+#ifdef UCX
+#include "xio_ucx_transport.h"
+#endif
 #define PRINT_SIZE(type) \
 { \
 	int i; \

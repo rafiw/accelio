@@ -464,6 +464,7 @@ const char *xio_proto_str(enum xio_proto proto)
 	switch (proto) {
 	case XIO_PROTO_RDMA: return "rdma";
 	case XIO_PROTO_TCP: return "tcp";
+	case XIO_PROTO_UCX: return "ucx";
 	default: return "proto_unknown";
 	}
 }

@@ -696,6 +696,8 @@ int xio_ctx_pool_create(struct xio_context *ctx, enum xio_proto proto,
 	char				pool_name[64];
 	const char			*proto_str = xio_proto_str(proto);
 
+	if (proto == XIO_PROTO_UCX)
+		return 0;
 	/* get the transport's proto */
 	transport = xio_get_transport(proto_str);
 	if (!transport) {

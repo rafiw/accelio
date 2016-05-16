@@ -416,6 +416,8 @@ int xio_set_opt(void *xio_obj, int level,  int optname,
 		return tcp_transport->set_opt(xio_obj,
 					      optname, optval, optlen);
 		break;
+	case XIO_OPTLEVEL_UCX:
+		break;
 	default:
 		break;
 	}
