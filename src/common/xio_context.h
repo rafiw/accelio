@@ -41,7 +41,6 @@
 #define xio_ctx_work_t  xio_work_handle_t
 #define xio_ctx_delayed_work_t  xio_delayed_work_handle_t
 
-#define XIO_PROTO_LAST  2	/* from enum xio_proto */
 
 #ifdef XIO_THREAD_SAFE_DEBUG
 #define BACKTRACE_BUFFER_SIZE 2048
