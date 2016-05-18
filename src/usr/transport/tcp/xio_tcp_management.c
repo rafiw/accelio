@@ -82,7 +82,7 @@ static int				cdl_fd = -1;
 
 /* tcp options */
 struct xio_tcp_options			tcp_options = {
-	0,		/*enable_mem_pool*/
+	XIO_OPTVAL_DEF_ENABLE_MEM_POOL,		/*enable_mem_pool*/
 	XIO_OPTVAL_DEF_TCP_ENABLE_DMA_LATENCY,	/*enable_dma_latency*/
 	XIO_OPTVAL_DEF_ENABLE_MR_CHECK,		/*enable_mr_check*/
 	XIO_OPTVAL_DEF_TCP_MAX_IN_IOVSZ,	/*max_in_iovsz*/
