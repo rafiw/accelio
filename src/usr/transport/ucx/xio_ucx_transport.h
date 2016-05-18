@@ -63,6 +63,7 @@
 #include "xio_context_priv.h"
 #include "ucp/api/ucp.h"
 
+#define MAX_BACKLOG			1024 /* listen socket max backlog   */
 
 enum xio_ucx_rx_stage {
 	XIO_UCX_RX_START,
@@ -123,6 +124,130 @@ PACKED_MEMORY(struct xio_ucx_rsp_hdr {
 	uint64_t	ulp_imm_len;   /* ulp data length     */
 });
 
+struct xio_ucp_addrs {
+	ucp_address_t * addr;
+	size_t addr_len;
+};
+
+PACKED_MEMORY(struct xio_ucx_conn_msg {
+	struct xio_ucp_addrs;
+});
+
+PACKED_MEMORY(struct xio_ucx_cancel_hdr {
+	uint16_t		hdr_len;	 /* req header length	*/
+	uint16_t		sn;		 /* msg serial number	*/
+	uint32_t		result;
+});
+
+struct xio_ucx_work_req {
+	struct iovec			*msg_iov;
+	uint32_t			msg_len;
+	uint32_t			pad;
+	uint64_t			tot_iov_byte_len;
+	void				*ctl_msg;
+	uint32_t			ctl_msg_len;
+	int				stage;
+	struct msghdr			msg;
+};
+
+
+struct xio_ucx_transport {
+	struct xio_transport_base	base;
+	struct xio_mempool		*tcp_mempool;
+	struct list_head		trans_list_entry;
+
+	/* UCP related structs */
+	ucp_context_h			ucp_context;
+	ucp_worker_h			ucp_worker;
+	struct xio_ucp_addrs		remote_addr;
+
+	/*  tasks queues */
+	struct list_head		tx_ready_list;
+	struct list_head		tx_comp_list;
+	struct list_head		in_flight_list;
+	struct list_head		rx_list;
+	struct list_head		io_list;
+
+	int				fd_sock;
+	uint16_t			port;
+	uint8_t				is_listen;
+	uint8_t				in_epoll[2];
+
+	/* fast path params */
+	enum xio_transport_state	state;
+
+	/* tx parameters */
+	size_t				max_inline_buf_sz;
+
+	int				tx_ready_tasks_num;
+
+	uint16_t			tx_comp_cnt;
+
+	uint16_t			sn;	   /* serial number */
+
+	/* control path params */
+
+	uint32_t			peer_max_in_iovsz;
+	uint32_t			peer_max_out_iovsz;
+
+	/* connection's flow control */
+	size_t				membuf_sz;
+
+	struct xio_transport		*transport;
+	struct xio_tasks_pool_cls	initial_pool_cls;
+	struct xio_tasks_pool_cls	primary_pool_cls;
+
+	struct xio_tcp_setup_msg	setup_rsp;
+
+	struct list_head		pending_conns;
+
+	void				*tmp_rx_buf;
+	void				*tmp_rx_buf_cur;
+	uint32_t			tmp_rx_buf_len;
+	uint32_t			peer_max_header;
+
+	uint32_t			trans_attr_mask;
+	struct xio_transport_attr	trans_attr;
+
+	struct xio_tcp_work_req		tmp_work;
+	struct iovec			tmp_iovec[IOV_MAX];
+
+	struct xio_ev_data		flush_tx_event;
+	struct xio_ev_data		ctl_rx_event;
+	struct xio_ev_data		disconnect_event;
+};
+struct xio_ucx_work_req {
+};
+struct xio_ucx_task {
+	enum xio_ib_op_code		out_ib_op;
+	enum xio_ib_op_code		in_ib_op;
+
+	/* The buffer mapped with the 3 xio_work_req
+	 * used to transfer the headers
+	 */
+	struct xio_ucx_work_req		txd;
+	struct xio_ucx_work_req		rxd;
+	struct xio_ucx_work_req		rdmad;
+
+	/* User (from vmsg) or pool buffer used for */
+	uint16_t			read_num_reg_mem;
+	uint16_t			write_num_reg_mem;
+	uint32_t			pad0;
+
+	/* What this side got from the peer for RDMA R/W
+	 */
+	uint16_t			req_in_num_sge;
+	uint16_t			req_out_num_sge;
+	uint16_t			rsp_out_num_sge;
+	uint16_t			pad1;
+
+	/* can serve send/rdma write  */
+	struct xio_sge			*req_in_sge;
+
+	/* can serve send/rdma read  */
+	struct xio_sge			*req_out_sge;
+
+};
 
 };
 #endif /* SRC_USR_TRANSPORT_UCX_XIO_UCX_TRANSPORT_H_ */

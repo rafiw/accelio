@@ -450,7 +450,7 @@ static struct xio_cq *xio_cq_get(struct xio_device *dev,
 		ERROR_LOG("fcntl failed. (errno=%d %m)\n", errno);
 		goto cleanup2;
 	}
-
+	DEBUG_LOG("Add xio_cq_event_handler to fd %d\n", tcq->channel->fd);
 	/* add to epoll */
 	retval = xio_context_add_ev_handler(
 			ctx,
@@ -2543,7 +2543,7 @@ static struct xio_cm_channel *xio_cm_channel_get(struct xio_context *ctx)
 		ERROR_LOG("fcntl failed. (errno=%d %m)\n", errno);
 		goto cleanup;
 	}
-
+	DEBUG_LOG("Add xio_cma_handler to fd %d\n", channel->cm_channel->fd);
 	retval = xio_context_add_ev_handler(
 			ctx,
 			channel->cm_channel->fd,

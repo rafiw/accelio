@@ -463,7 +463,7 @@ int main(int argc, char *argv[])
 	char			url[256];
 	int			in_iov_len = PEER_MAX_OUT_IOVLEN;
 	int			out_iov_len = PEER_MAX_IN_IOVLEN;
-
+	int opt = 0;
 	if (parse_cmdline(&test_config, argc, argv) != 0)
 		return -1;
 
@@ -483,6 +483,9 @@ int main(int argc, char *argv[])
 		    &out_iov_len, sizeof(int));
 		    /*&test_config.iov_len, sizeof(int));*/
 
+	xio_set_opt(NULL,
+		    XIO_OPTLEVEL_TCP, XIO_OPTNAME_TCP_DUAL_STREAM,
+		    &opt, sizeof(int));
 	memset(&test_params, 0, sizeof(struct test_params));
 
 	/* prepare buffers for this test */
