@@ -825,8 +825,7 @@ struct xio_tcp_transport *xio_tcp_transport_create(
 	XIO_OBSERVABLE_INIT(&tcp_hndl->base.observable, tcp_hndl);
 
 	if (tcp_options.enable_mem_pool) {
-		tcp_hndl->tcp_mempool =
-			xio_transport_mempool_get(ctx, 0);
+		xio_transport_mempool_get(ctx, 0);
 		if (!tcp_hndl->tcp_mempool) {
 			xio_set_error(ENOMEM);
 			ERROR_LOG("allocating tcp mempool failed. %m\n");
