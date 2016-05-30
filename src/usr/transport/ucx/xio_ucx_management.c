@@ -777,6 +777,7 @@ void xio_ucx_handle_pending_conn(int fd,
 	ucp_address_t *ucp_addr;
 	struct xio_ucp_callback_data *handle;
 	struct xio_ucx_connect_msg addr;
+	union xio_transport_event_data ev_data;
 
 	list_for_each_entry_safe(pconn, next_pconn,
 			&ucx_hndl->pending_conns,
@@ -858,7 +859,14 @@ void xio_ucx_handle_pending_conn(int fd,
 			ucp_worker_progress(worker->worker);
 		}
 	}
-	xio_ucx_addr_send((void*)ucx_hndl);
+	handle->transport->state = XIO_TRANSPORT_STATE_CONNECTING;
+	ev_data.new_connection.child_trans_hndl =
+			(struct xio_transport_base*)handle->transport;
+
+	xio_transport_notify_observer(
+			(struct xio_transport_base *)handle->transport,
+			XIO_TRANSPORT_EVENT_NEW_CONNECTION,
+			&ev_data);
 	return;
 
 	cleanup1:
@@ -886,27 +894,7 @@ void xio_ucx_pending_conn_ev_handler(int fd, int events, void *user_context)
 
 	xio_ucx_handle_pending_conn(
 			fd, ucx_hndl,
-			events & (XIO_POLLHUP | XIO_POLLRDHUP | XIO_POLLERR));
-}
-/*
- * this function is called by ucx cb or by the pending connection handler
- * to tell nexus about new connection
- */
-void xio_ucx_addr_send(void *user_context)
-{
-	union xio_transport_event_data ev_data;
-	struct xio_ucp_callback_data *handle =
-			(struct xio_ucp_callback_data*)user_context;
-	if (handle->transport) {
-		handle->transport->state = XIO_TRANSPORT_STATE_CONNECTING;
-		ev_data.new_connection.child_trans_hndl =
-				(struct xio_transport_base*)handle->transport;
-
-		xio_transport_notify_observer(
-				(struct xio_transport_base *)handle->transport,
-				XIO_TRANSPORT_EVENT_NEW_CONNECTION,
-				&ev_data);
-	}
+			events & (XIO_POLLHUP | XIO_POLLERR));
 }
 
 /**
