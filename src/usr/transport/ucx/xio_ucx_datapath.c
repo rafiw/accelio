@@ -256,7 +256,7 @@ static int xio_ucx_send_setup_req(struct xio_ucx_transport *ucx_hndl,
 
 	xio_task_addref(task);
 
-	xio_ucx_sendmsg_work(ucx_hndl->sock.cfd, &ucx_task->txd, 1);
+	xio_ucx_sendmsg_work(ucx_hndl->tcp_sock.cfd, &ucx_task->txd, 1);
 
 	list_move_tail(&task->tasks_list_entry, &ucx_hndl->in_flight_list);
 
@@ -299,7 +299,7 @@ static int xio_ucx_send_setup_rsp(struct xio_ucx_transport *ucx_hndl,
 
 	ucx_task->out_ucx_op		 = XIO_UCX_SEND;
 
-	xio_ucx_sendmsg_work(ucx_hndl->sock.cfd, &ucx_task->txd, 1);
+	xio_ucx_sendmsg_work(ucx_hndl->tcp_sock.cfd, &ucx_task->txd, 1);
 
 	list_move(&task->tasks_list_entry, &ucx_hndl->in_flight_list);
 
@@ -1018,7 +1018,7 @@ int xio_ucx_xmit(struct xio_ucx_transport *ucx_hndl)
 			ucx_hndl->tmp_work.msg.msg_iovlen =
 					ucx_hndl->tmp_work.msg_len;
 
-			retval = xio_ucx_sendmsg_work(ucx_hndl->sock.cfd,
+			retval = xio_ucx_sendmsg_work(ucx_hndl->tcp_sock.cfd,
 						      &ucx_hndl->tmp_work, 0);
 
 			task = list_first_entry(&ucx_hndl->tx_ready_list,
@@ -1065,7 +1065,7 @@ int xio_ucx_xmit(struct xio_ucx_transport *ucx_hndl)
 				/* for eagain, add event for ready for write*/
 				retval = xio_context_modify_ev_handler(
 						ucx_hndl->base.ctx,
-						ucx_hndl->sock.cfd,
+						ucx_hndl->tcp_sock.cfd,
 						XIO_POLLIN | XIO_POLLRDHUP |
 						XIO_POLLOUT);
 				if (retval != 0)
@@ -1112,7 +1112,7 @@ int xio_ucx_xmit(struct xio_ucx_transport *ucx_hndl)
 					ucx_hndl->tmp_work.msg_len;
 
 			bytes_sent = ucx_hndl->tmp_work.tot_iov_byte_len;
-			retval = xio_ucx_sendmsg_work(ucx_hndl->sock.cfd,
+			retval = xio_ucx_sendmsg_work(ucx_hndl->tcp_sock.cfd,
 						      &ucx_hndl->tmp_work, 0);
 			bytes_sent -= ucx_hndl->tmp_work.tot_iov_byte_len;
 
@@ -1186,7 +1186,7 @@ int xio_ucx_xmit(struct xio_ucx_transport *ucx_hndl)
 				/* for eagain, add event for ready for write*/
 				retval = xio_context_modify_ev_handler(
 						ucx_hndl->base.ctx,
-						ucx_hndl->sock.cfd,
+						ucx_hndl->tcp_sock.cfd,
 						XIO_POLLIN | XIO_POLLRDHUP |
 						XIO_POLLOUT);
 				if (retval != 0)
@@ -1420,7 +1420,7 @@ static int xio_ucx_send_req(struct xio_ucx_transport *ucx_hndl,
 	}
 
 	/* set the length */
-	tlv_len = ucx_hndl->sock.ops->set_txd(task);
+	tlv_len = ucx_hndl->tcp_sock.ops.set_txd(task);
 
 	/* add tlv */
 	if (xio_mbuf_write_tlv(&task->mbuf, task->tlv_type, tlv_len) != 0) {
@@ -1769,7 +1769,7 @@ static int xio_ucx_send_rsp(struct xio_ucx_transport *ucx_hndl,
 	}
 
 	/* set the length */
-	tlv_len = ucx_hndl->sock.ops->set_txd(task);
+	tlv_len = ucx_hndl->tcp_sock.ops.set_txd(task);
 
 	/* add tlv */
 	if (xio_mbuf_write_tlv(&task->mbuf, task->tlv_type, tlv_len) != 0)
@@ -2353,7 +2353,7 @@ static int xio_ucx_on_recv_req_header(struct xio_ucx_transport *ucx_hndl,
 	ucx_task->out_ucx_op = (enum xio_ucx_op_code)req_hdr.out_ucx_op;
 	ucx_task->in_ucx_op = (enum xio_ucx_op_code)req_hdr.in_ucx_op;
 
-	ucx_hndl->sock.ops->set_rxd(task, ulp_hdr, req_hdr.ulp_hdr_len +
+	ucx_hndl->tcp_sock.ops.set_rxd(task, ulp_hdr, req_hdr.ulp_hdr_len +
 			req_hdr.ulp_pad_len + (uint32_t)req_hdr.ulp_imm_len);
 
 	switch (req_hdr.out_ucx_op) {
@@ -2497,7 +2497,7 @@ static int xio_ucx_on_recv_rsp_header(struct xio_ucx_transport *ucx_hndl,
 
 	switch (rsp_hdr.out_ucx_op) {
 	case XIO_UCX_SEND:
-		ucx_hndl->sock.ops->set_rxd(task, ulp_hdr, rsp_hdr.ulp_hdr_len +
+		ucx_hndl->tcp_sock.ops.set_rxd(task, ulp_hdr, rsp_hdr.ulp_hdr_len +
 					    rsp_hdr.ulp_pad_len +
 					    (uint32_t)rsp_hdr.ulp_imm_len);
 		/* if data arrived, set the pointers */
@@ -2515,7 +2515,7 @@ static int xio_ucx_on_recv_rsp_header(struct xio_ucx_transport *ucx_hndl,
 		}
 		break;
 	case XIO_UCX_WRITE:
-		ucx_hndl->sock.ops->set_rxd(task->sender_task, ulp_hdr,
+		ucx_hndl->tcp_sock.ops.set_rxd(task->sender_task, ulp_hdr,
 					    rsp_hdr.ulp_hdr_len +
 					    rsp_hdr.ulp_pad_len);
 		if (ucx_task->rsp_out_num_sge >
@@ -2879,7 +2879,7 @@ static int xio_ucx_on_recv_cancel_rsp_header(
 	imsg->in.header.iov_len		= rsp_hdr.ulp_hdr_len;
 	imsg->in.header.iov_base	= ulp_hdr;
 
-	ucx_hndl->sock.ops->set_rxd(task, ulp_hdr, rsp_hdr.ulp_hdr_len);
+	ucx_hndl->tcp_sock.ops.set_rxd(task, ulp_hdr, rsp_hdr.ulp_hdr_len);
 
 	return 0;
 }
@@ -2956,7 +2956,7 @@ static int xio_ucx_on_recv_cancel_req_header(
 	imsg->in.header.iov_len		= req_hdr.ulp_hdr_len;
 	imsg->in.header.iov_base	= ulp_hdr;
 
-	ucx_hndl->sock.ops->set_rxd(task, ulp_hdr, req_hdr.ulp_hdr_len);
+	ucx_hndl->tcp_sock.ops.set_rxd(task, ulp_hdr, req_hdr.ulp_hdr_len);
 
 	return 0;
 
@@ -3043,7 +3043,7 @@ static int xio_ucx_send_cancel(struct xio_ucx_transport *ucx_hndl,
 	ucx_task->txd.msg_len		 = 1;
 	ucx_task->txd.tot_iov_byte_len	 = 0;
 
-	tlv_len = ucx_hndl->sock.ops->set_txd(task);
+	tlv_len = ucx_hndl->tcp_sock.ops.set_txd(task);
 
 	/* add tlv */
 	if (xio_mbuf_write_tlv(&task->mbuf, task->tlv_type, (uint16_t)tlv_len)
@@ -3187,7 +3187,7 @@ int xio_ucx_rx_data_handler(struct xio_ucx_transport *ucx_hndl, int batch_nr)
 
 		bytes_recv = ucx_hndl->tmp_work.tot_iov_byte_len;
 		recvmsg_retval = xio_ucx_recvmsg_work(ucx_hndl,
-						      ucx_hndl->sock.cfd,
+						      ucx_hndl->tcp_sock.cfd,
 						      &ucx_hndl->tmp_work, 0);
 		bytes_recv -= ucx_hndl->tmp_work.tot_iov_byte_len;
 
@@ -3352,9 +3352,9 @@ int xio_ucx_rx_ctl_handler(struct xio_ucx_transport *ucx_hndl, int batch_nr)
 			ucx_task->rxd.stage = XIO_UCX_RX_TLV;
 			/*fallthrough*/
 		case XIO_UCX_RX_TLV:
-			retval = ucx_hndl->sock.ops->rx_ctl_work(
+			retval = ucx_hndl->tcp_sock.ops.rx_ctl_work(
 					ucx_hndl,
-					ucx_hndl->sock.cfd,
+					ucx_hndl->tcp_sock.cfd,
 					&ucx_task->rxd, 0);
 			if (retval == 0) {
 				DEBUG_LOG("ucx transport got EOF,ucx_hndl=%p\n",
@@ -3383,9 +3383,9 @@ int xio_ucx_rx_ctl_handler(struct xio_ucx_transport *ucx_hndl, int batch_nr)
 			ucx_task->rxd.stage = XIO_UCX_RX_HEADER;
 			/*fallthrough*/
 		case XIO_UCX_RX_HEADER:
-			retval = ucx_hndl->sock.ops->rx_ctl_work(
+			retval = ucx_hndl->tcp_sock.ops.rx_ctl_work(
 					ucx_hndl,
-					ucx_hndl->sock.cfd,
+					ucx_hndl->tcp_sock.cfd,
 					&ucx_task->rxd, 0);
 			if (retval == 0) {
 				DEBUG_LOG("ucx transport got EOF,ucx_hndl=%p\n",
@@ -3449,7 +3449,7 @@ int xio_ucx_rx_ctl_handler(struct xio_ucx_transport *ucx_hndl, int batch_nr)
 	if (count == 0)
 		return 0;
 
-	retval = ucx_hndl->sock.ops->rx_data_handler(ucx_hndl, batch_nr);
+	retval = ucx_hndl->tcp_sock.ops.rx_data_handler(ucx_hndl, batch_nr);
 	if (unlikely(retval < 0))
 		return retval;
 	count = retval;
@@ -3496,7 +3496,7 @@ int xio_ucx_poll(struct xio_transport_base *transport,
 
 	while (1) {
 		/* ORK todo blocking recv with timeout?*/
-		recv_counter = ucx_hndl->sock.ops->rx_ctl_handler(ucx_hndl);
+		recv_counter = ucx_hndl->tcp_sock.ops.rx_ctl_handler(ucx_hndl);
 		if (recv_counter < 0 && xio_errno() != XIO_EAGAIN)
 			break;
 

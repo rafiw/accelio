@@ -42,7 +42,7 @@
 
 
 struct xio_ucx_transport;
-struct xio_ucx_socket;
+struct xio_ucx_tcp_socket;
 
 /*---------------------------------------------------------------------------*/
 /* externals								     */
@@ -189,6 +189,7 @@ PACKED_MEMORY(struct xio_ucx_rsp_hdr {
 
 struct xio_ucp_worker {
 	ucp_worker_h		worker;
+	int			fd;
 	size_t			addr_len;
 	ucp_address_t		*addr;
 };
@@ -286,7 +287,7 @@ struct xio_ucx_pending_conn {
 };
 
 struct xio_ucx_socket_ops {
-	int (*open)(struct xio_ucx_socket *sock);
+	int (*open)(struct xio_ucx_tcp_socket *tcp_sock);
 	int (*add_ev_handlers)(struct xio_ucx_transport *ucx_hndl);
 	int (*del_ev_handlers)(struct xio_ucx_transport *ucx_hndl);
 	int (*connect)(struct xio_ucx_transport *ucx_hndl,
@@ -299,15 +300,15 @@ struct xio_ucx_socket_ops {
 	int (*rx_ctl_handler)(struct xio_ucx_transport *ucx_hndl);
 	int (*rx_data_handler)(struct xio_ucx_transport *ucx_hndl,
 			       int batch_nr);
-	int (*shutdown)(struct xio_ucx_socket *sock);
-	int (*close)(struct xio_ucx_socket *sock);
+	int (*shutdown)(struct xio_ucx_tcp_socket *tcp_sock);
+	int (*close)(struct xio_ucx_tcp_socket *tcp_sock);
 };
 
-struct xio_ucx_socket {
+struct xio_ucx_tcp_socket {
 	int				cfd;
 	uint16_t			port_cfd;
 	int				pad;
-	struct xio_ucx_socket_ops	ops[1];
+	struct xio_ucx_socket_ops	ops;
 };
 struct xio_ucx_transport {
 	struct xio_transport_base	base;
@@ -322,7 +323,7 @@ struct xio_ucx_transport {
 	struct list_head		io_list;
 
 	ucp_ep_h			ucp_ep;
-	struct xio_ucx_socket		sock;
+	struct xio_ucx_tcp_socket	tcp_sock;
 	uint16_t			is_listen;
 	uint8_t				in_epoll[2];
 	/* fast path params */
