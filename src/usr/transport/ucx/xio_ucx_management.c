@@ -842,8 +842,8 @@ void xio_ucx_handle_pending_conn(int fd,
 
 	/* send server worker address using ucp */
 	h_status = ucp_tag_send_nb(ucx_hndl->ucp_ep, &addr, sizeof(addr),
-	XIO_CONTIG,
-					XIO_UCP_TAG, xio_ucx_general_send_cb);
+				   XIO_CONTIG, XIO_UCP_TAG,
+				   xio_ucx_general_send_cb);
 	if (UCS_PTR_IS_ERR(h_status)) {
 		ERROR_LOG("UCS PTR returned ERR\n");
 		goto cleanup2;
@@ -853,13 +853,13 @@ void xio_ucx_handle_pending_conn(int fd,
 		/*RAFI : need to cancel while loop */
 		while (handle->completed == 0) {
 			ucp_worker_progress(worker->worker);
-			return;
 		}
 	}
 	xio_ucx_addr_send((void*)ucx_hndl);
 	return;
 
-	cleanup1: list_del(&pending_conn->conns_list_entry);
+	cleanup1:
+	list_del(&pending_conn->conns_list_entry);
 	ufree(pending_conn);
 	cleanup2:
 	/*remove from epoll*/
@@ -868,8 +868,6 @@ void xio_ucx_handle_pending_conn(int fd,
 		ERROR_LOG("removing connection handler failed.(errno=%d %m)\n",
 				xio_get_last_socket_error());
 	}
-	/*cleanup3:
-	 xio_closesocket(fd);*/
 }
 
 /**
@@ -917,11 +915,10 @@ void xio_ucx_general_send_cb(void *user_context, ucs_status_t status)
 {
 	struct xio_ucp_callback_data *handle =
 			(struct xio_ucp_callback_data*)user_context;
-	ERROR_LOG("UCX send clb called");
 	if (likely((status == UCS_OK)))
 		handle->completed = 1;
 	else
-		ERROR_LOG("Go error %d when receiving data from UCX\n", status);
+		ERROR_LOG("Got error %d when receiving data from UCX\n", status);
 
 }
 
@@ -936,7 +933,6 @@ void xio_ucx_general_recv_cb(void *request, ucs_status_t status,
 {
 	struct xio_ucp_callback_data *handle =
 			(struct xio_ucp_callback_data*)request;
-	ERROR_LOG("UCX rcv clb called");
 	if (likely((status == UCS_OK)))
 		handle->completed = 1;
 	else
@@ -1009,8 +1005,7 @@ void xio_ucx_listener_ev_handler(int fd, int events, void *user_context)
 
 	if ((events & (XIO_POLLHUP | XIO_POLLERR))) {
 		DEBUG_LOG("epoll returned with error events=%d for fd=%d\n",
-				events,
-				fd);
+				events, fd);
 		xio_ucx_disconnect_helper(ucx_hndl);
 	}
 }
@@ -1067,10 +1062,10 @@ static int xio_ucx_listen(struct xio_transport_base *transport,
 
 	/* add to epoll */
 	retval = xio_context_add_ev_handler(ucx_hndl->base.ctx,
-						ucx_hndl->sock.cfd,
-						XIO_POLLIN,
-						xio_ucx_listener_ev_handler,
-						ucx_hndl);
+					    ucx_hndl->sock.cfd,
+					    XIO_POLLIN,
+					    xio_ucx_listener_ev_handler,
+					    ucx_hndl);
 	if (retval) {
 		ERROR_LOG("xio_context_add_ev_handler failed.\n");
 		goto exit1;
@@ -1078,7 +1073,7 @@ static int xio_ucx_listen(struct xio_transport_base *transport,
 	ucx_hndl->in_epoll[0] = 1;
 
 	retval = getsockname(ucx_hndl->sock.cfd, (struct sockaddr *)&sa.sa_stor,
-				(socklen_t *)&sa_len);
+			     (socklen_t *)&sa_len);
 	if (retval) {
 		xio_set_error(xio_get_last_socket_error());
 		ERROR_LOG("getsockname failed. (errno=%d %m)\n",
@@ -1172,23 +1167,24 @@ void xio_ucx_conn_established_helper(int fd, struct xio_ucx_transport *ucx_hndl,
 				xio_get_last_socket_error());
 		goto cleanup;
 	}
-	retval = xio_context_add_ev_handler(ucx_hndl->base.ctx, ucp_fd,
-						XIO_POLLIN | XIO_POLLRDHUP,
-						xio_ucx_get_ucp_server_adrs,
-						ucx_hndl);
+	retval = xio_context_add_ev_handler(ucx_hndl->base.ctx,
+					    ucp_fd,
+					    XIO_POLLIN | XIO_POLLRDHUP,
+					    xio_ucx_get_ucp_server_adrs,
+					    ucx_hndl);
 
 	if (retval)
 		goto cleanup;
 	retval = xio_ucx_send_connect_msg(ucx_hndl->sock.cfd, msg);
 	if (retval) {
-		ERROR_LOG("setting connection handler failed. "
-				"(errno=%d %m)\n",
-				xio_get_last_socket_error());
+		ERROR_LOG("setting connection handler failed. (errno=%d %m)\n",
+			  xio_get_last_socket_error());
 		goto cleanup;
 	}
 	return;
 
-	cleanup: if (so_error == XIO_ECONNREFUSED)
+	cleanup:
+	if (so_error == XIO_ECONNREFUSED)
 		xio_transport_notify_observer(&ucx_hndl->base,
 						XIO_TRANSPORT_EVENT_REFUSED,
 						NULL);
@@ -1215,7 +1211,6 @@ void xio_ucx_get_ucp_server_adrs(int fd, int events, void *user_context)
 	ucp_tag_message_h tag_msg;
 	int retval;
 	ucs_status_ptr_t status;
-	ERROR_LOG("INVOKED good work!!!\n");
 	tag_msg = ucp_tag_probe_nb(worker->worker, XIO_UCP_TAG, XIO_TAG_MASK,
 	XIO_UCX_REMOVE,
 					&tag_info);
@@ -1228,8 +1223,7 @@ void xio_ucx_get_ucp_server_adrs(int fd, int events, void *user_context)
 		goto back_to_epoll;
 	}
 	status = ucp_tag_msg_recv_nb(worker->worker, &msg, sizeof(msg),
-	XIO_CONTIG,
-					tag_msg, xio_ucx_general_recv_cb);
+				     XIO_CONTIG,tag_msg, xio_ucx_general_recv_cb);
 	if (UCS_PTR_IS_ERR(status)) {
 		ERROR_LOG("Got err while sending ucx address %d\n", status);
 		goto back_to_epoll;
@@ -1252,7 +1246,8 @@ void xio_ucx_get_ucp_server_adrs(int fd, int events, void *user_context)
 	xio_transport_notify_observer(&ucx_hndl->base,
 					XIO_TRANSPORT_EVENT_ESTABLISHED,
 					NULL);
-	back_to_epoll: ucp_worker_arm(worker->worker);
+	back_to_epoll:
+	ucp_worker_arm(worker->worker);
 	return;
 }
 
