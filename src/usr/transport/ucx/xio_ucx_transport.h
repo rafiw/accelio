@@ -35,11 +35,11 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#ifndef XIO_TCP_TRANSPORT_H_
-#define XIO_TCP_TRANSPORT_H_
+#ifndef XIO_UCX_TRANSPORT_H_
+#define XIO_UCX_TRANSPORT_H_
 
-struct xio_tcp_transport;
-struct xio_tcp_socket;
+struct xio_ucx_transport;
+struct xio_ucx_socket;
 
 /*---------------------------------------------------------------------------*/
 /* externals								     */
@@ -76,64 +76,64 @@ extern double				g_mhz;
 
 #define TMP_RX_BUF_SIZE			(RX_BATCH * MAX_HDR_SZ)
 
-#define XIO_TO_TCP_TASK(xt, tt)			\
-		struct xio_tcp_task *(tt) =		\
-			(struct xio_tcp_task *)(xt)->dd_data
-#define XIO_TO_TCP_HNDL(xt, th)				\
-		struct xio_tcp_transport *(th) =		\
-			(struct xio_tcp_transport *)(xt)->context
+#define XIO_TO_UCX_TASK(xt, tt)			\
+		struct xio_ucx_task *(tt) =		\
+			(struct xio_ucx_task *)(xt)->dd_data
+#define XIO_TO_UCX_HNDL(xt, th)				\
+		struct xio_ucx_transport *(th) =		\
+			(struct xio_ucx_transport *)(xt)->context
 
 #define PAGE_SIZE                       page_size
 
 /*---------------------------------------------------------------------------*/
 /* enums								     */
 /*---------------------------------------------------------------------------*/
-enum xio_tcp_op_code {
-	XIO_TCP_NULL,
-	XIO_TCP_RECV		= 1,
-	XIO_TCP_SEND,
-	XIO_TCP_WRITE,
-	XIO_TCP_READ
+enum xio_ucx_op_code {
+	XIO_UCX_NULL,
+	XIO_UCX_RECV		= 1,
+	XIO_UCX_SEND,
+	XIO_UCX_WRITE,
+	XIO_UCX_READ
 };
 
-enum xio_tcp_rx_stage {
-	XIO_TCP_RX_START,
-	XIO_TCP_RX_TLV,
-	XIO_TCP_RX_HEADER,
-	XIO_TCP_RX_IO_DATA,
-	XIO_TCP_RX_DONE
+enum xio_ucx_rx_stage {
+	XIO_UCX_RX_START,
+	XIO_UCX_RX_TLV,
+	XIO_UCX_RX_HEADER,
+	XIO_UCX_RX_IO_DATA,
+	XIO_UCX_RX_DONE
 };
 
-enum xio_tcp_tx_stage {
-	XIO_TCP_TX_BEFORE,
-	XIO_TCP_TX_IN_SEND_CTL,
-	XIO_TCP_TX_IN_SEND_DATA,
-	XIO_TCP_TX_DONE
+enum xio_ucx_tx_stage {
+	XIO_UCX_TX_BEFORE,
+	XIO_UCX_TX_IN_SEND_CTL,
+	XIO_UCX_TX_IN_SEND_DATA,
+	XIO_UCX_TX_DONE
 };
 
-enum xio_tcp_sock_type {
-	XIO_TCP_SINGLE_SOCK = 1,
-	XIO_TCP_CTL_SOCK,
-	XIO_TCP_DATA_SOCK
+enum xio_ucx_sock_type {
+	XIO_UCX_SINGLE_SOCK = 1,
+	XIO_UCX_CTL_SOCK,
+	XIO_UCX_DATA_SOCK
 };
 
 /*---------------------------------------------------------------------------*/
-struct xio_tcp_options {
+struct xio_ucx_options {
 	int			enable_mem_pool;
 	int			enable_dma_latency;
 	int			enable_mr_check;
 	int			max_in_iovsz;
 	int			max_out_iovsz;
-	int			tcp_no_delay;
-	int			tcp_so_sndbuf;
-	int			tcp_so_rcvbuf;
-	int			tcp_dual_sock;
+	int			ucx_no_delay;
+	int			ucx_so_sndbuf;
+	int			ucx_so_rcvbuf;
+	int			ucx_dual_sock;
 	int			pad;
 };
 
-#define XIO_TCP_REQ_HEADER_VERSION	1
+#define XIO_UCX_REQ_HEADER_VERSION	1
 
-PACKED_MEMORY(struct xio_tcp_req_hdr {
+PACKED_MEMORY(struct xio_ucx_req_hdr {
 	uint8_t			version;	/* request version	*/
 	uint8_t			flags;
 	uint16_t		req_hdr_len;	/* req header length	*/
@@ -142,8 +142,8 @@ PACKED_MEMORY(struct xio_tcp_req_hdr {
 
 	uint32_t		ltid;		/* originator identifier*/
 	uint16_t		pad;
-	uint8_t			in_tcp_op;	/* opcode  for peers	*/
-	uint8_t			out_tcp_op;
+	uint8_t			in_ucx_op;	/* opcode  for peers	*/
+	uint8_t			out_ucx_op;
 
 	uint16_t		in_num_sge;
 	uint16_t		out_num_sge;
@@ -156,9 +156,9 @@ PACKED_MEMORY(struct xio_tcp_req_hdr {
 	uint64_t		ulp_imm_len;	/* ulp data length	*/
 });
 
-#define XIO_TCP_RSP_HEADER_VERSION	1
+#define XIO_UCX_RSP_HEADER_VERSION	1
 
-PACKED_MEMORY(struct xio_tcp_rsp_hdr {
+PACKED_MEMORY(struct xio_ucx_rsp_hdr {
 	uint8_t			version;	/* response version     */
 	uint8_t			flags;
 	uint16_t		rsp_hdr_len;	/* rsp header length	*/
@@ -168,7 +168,7 @@ PACKED_MEMORY(struct xio_tcp_rsp_hdr {
 	uint32_t		ltid;		/* local task id	*/
 	uint32_t                rtid;           /* remote task id       */
 
-	uint8_t			out_tcp_op;	/* opcode  for peers	*/
+	uint8_t			out_ucx_op;	/* opcode  for peers	*/
 	uint8_t			pad1;
 	uint16_t		out_num_sge;
 	uint32_t		status;		/* status		*/
@@ -180,13 +180,13 @@ PACKED_MEMORY(struct xio_tcp_rsp_hdr {
 	uint64_t		ulp_imm_len;	/* ulp data length	*/
 });
 
-PACKED_MEMORY(struct xio_tcp_connect_msg {
-	enum xio_tcp_sock_type	sock_type;
+PACKED_MEMORY(struct xio_ucx_connect_msg {
+	enum xio_ucx_sock_type	sock_type;
 	uint16_t		second_port;
 	uint16_t		pad;
 });
 
-PACKED_MEMORY(struct xio_tcp_setup_msg {
+PACKED_MEMORY(struct xio_ucx_setup_msg {
 	uint64_t		buffer_sz;
 	uint32_t		max_in_iovsz;
 	uint32_t		max_out_iovsz;
@@ -194,13 +194,13 @@ PACKED_MEMORY(struct xio_tcp_setup_msg {
 	uint32_t		pad;
 });
 
-PACKED_MEMORY(struct xio_tcp_cancel_hdr {
+PACKED_MEMORY(struct xio_ucx_cancel_hdr {
 	uint16_t		hdr_len;	 /* req header length	*/
 	uint16_t		sn;		 /* msg serial number	*/
 	uint32_t		result;
 });
 
-struct xio_tcp_work_req {
+struct xio_ucx_work_req {
 	struct iovec			*msg_iov;
 	uint32_t			msg_len;
 	uint32_t			pad;
@@ -211,12 +211,12 @@ struct xio_tcp_work_req {
 	struct msghdr			msg;
 };
 
-struct xio_tcp_task {
-	enum xio_tcp_op_code		in_tcp_op;
-	enum xio_tcp_op_code		out_tcp_op;
+struct xio_ucx_task {
+	enum xio_ucx_op_code		in_ucx_op;
+	enum xio_ucx_op_code		out_ucx_op;
 
-	struct xio_tcp_work_req		txd;
-	struct xio_tcp_work_req		rxd;
+	struct xio_ucx_work_req		txd;
+	struct xio_ucx_work_req		rxd;
 
 
 	/* User (from vmsg) or pool buffer used for */
@@ -247,51 +247,51 @@ struct xio_tcp_task {
 	xio_work_handle_t		comp_work;
 };
 
-struct xio_tcp_tasks_slab {
+struct xio_ucx_tasks_slab {
 	void				*data_pool;
 	struct xio_reg_mem		reg_mem;
 	int				buf_size;
 	int				pad;
 };
 
-struct xio_tcp_pending_conn {
+struct xio_ucx_pending_conn {
 	int				fd;
 	int				waiting_for_bytes;
-	struct xio_tcp_connect_msg	msg;
+	struct xio_ucx_connect_msg	msg;
 	union xio_sockaddr		sa;
 	struct list_head		conns_list_entry;
 };
 
-struct xio_tcp_socket_ops {
-	int (*open)(struct xio_tcp_socket *sock);
-	int (*add_ev_handlers)(struct xio_tcp_transport *tcp_hndl);
-	int (*del_ev_handlers)(struct xio_tcp_transport *tcp_hndl);
-	int (*connect)(struct xio_tcp_transport *tcp_hndl,
+struct xio_ucx_socket_ops {
+	int (*open)(struct xio_ucx_socket *sock);
+	int (*add_ev_handlers)(struct xio_ucx_transport *ucx_hndl);
+	int (*del_ev_handlers)(struct xio_ucx_transport *ucx_hndl);
+	int (*connect)(struct xio_ucx_transport *ucx_hndl,
 		       struct sockaddr *sa, socklen_t sa_len);
 	size_t (*set_txd)(struct xio_task *task);
 	void (*set_rxd)(struct xio_task *task, void *buf, uint32_t len);
-	int (*rx_ctl_work)(struct xio_tcp_transport *tcp_hndl, int fd,
-			   struct xio_tcp_work_req *xio_recv,
+	int (*rx_ctl_work)(struct xio_ucx_transport *ucx_hndl, int fd,
+			   struct xio_ucx_work_req *xio_recv,
 			   int block);
-	int (*rx_ctl_handler)(struct xio_tcp_transport *tcp_hndl);
-	int (*rx_data_handler)(struct xio_tcp_transport *tcp_hndl,
+	int (*rx_ctl_handler)(struct xio_ucx_transport *ucx_hndl);
+	int (*rx_data_handler)(struct xio_ucx_transport *ucx_hndl,
 			       int batch_nr);
-	int (*shutdown)(struct xio_tcp_socket *sock);
-	int (*close)(struct xio_tcp_socket *sock);
+	int (*shutdown)(struct xio_ucx_socket *sock);
+	int (*close)(struct xio_ucx_socket *sock);
 };
 
-struct xio_tcp_socket {
+struct xio_ucx_socket {
 	int				cfd;
 	int				dfd;
 	uint16_t			port_cfd;
 	uint16_t			port_dfd;
 	int				pad;
-	struct xio_tcp_socket_ops	ops[1];
+	struct xio_ucx_socket_ops	ops[1];
 };
 
-struct xio_tcp_transport {
+struct xio_ucx_transport {
 	struct xio_transport_base	base;
-	struct xio_mempool		*tcp_mempool;
+	struct xio_mempool		*ucx_mempool;
 	struct list_head		trans_list_entry;
 
 	/*  tasks queues */
@@ -301,7 +301,7 @@ struct xio_tcp_transport {
 	struct list_head		rx_list;
 	struct list_head		io_list;
 
-	struct xio_tcp_socket		sock;
+	struct xio_ucx_socket		sock;
 	uint16_t			is_listen;
 	uint8_t			        in_epoll[2];
 
@@ -329,7 +329,7 @@ struct xio_tcp_transport {
 	struct xio_tasks_pool_cls	initial_pool_cls;
 	struct xio_tasks_pool_cls	primary_pool_cls;
 
-	struct xio_tcp_setup_msg	setup_rsp;
+	struct xio_ucx_setup_msg	setup_rsp;
 
 	/* too big to be on stack - use as temporaries */
 	union {
@@ -346,7 +346,7 @@ struct xio_tcp_transport {
 	uint32_t			trans_attr_mask;
 	struct xio_transport_attr	trans_attr;
 
-	struct xio_tcp_work_req		tmp_work;
+	struct xio_ucx_work_req		tmp_work;
 	struct iovec			tmp_iovec[IOV_MAX];
 
 	struct xio_ev_data              flush_tx_event;
@@ -354,54 +354,54 @@ struct xio_tcp_transport {
 	struct xio_ev_data		disconnect_event;
 };
 
-int xio_tcp_get_max_header_size(void);
+int xio_ucx_get_max_header_size(void);
 
-int xio_tcp_get_inline_buffer_size(void);
+int xio_ucx_get_inline_buffer_size(void);
 
-int xio_tcp_send(struct xio_transport_base *transport,
+int xio_ucx_send(struct xio_transport_base *transport,
 		 struct xio_task *task);
 
-int xio_tcp_rx_handler(struct xio_tcp_transport *tcp_hndl);
+int xio_ucx_rx_handler(struct xio_ucx_transport *ucx_hndl);
 
-int xio_tcp_poll(struct xio_transport_base *transport,
+int xio_ucx_poll(struct xio_transport_base *transport,
 		 long min_nr, long max_nr,
 		 struct timespec *ts_timeout);
 
-struct xio_task *xio_tcp_primary_task_lookup(
-					struct xio_tcp_transport *tcp_hndl,
+struct xio_task *xio_ucx_primary_task_lookup(
+					struct xio_ucx_transport *ucx_hndl,
 					int tid);
 
-struct xio_task *xio_tcp_primary_task_alloc(
-					struct xio_tcp_transport *tcp_hndl);
+struct xio_task *xio_ucx_primary_task_alloc(
+					struct xio_ucx_transport *ucx_hndl);
 
-void on_sock_disconnected(struct xio_tcp_transport *tcp_hndl,
+void on_sock_disconnected(struct xio_ucx_transport *ucx_hndl,
 			  int notify_observer);
 
-int xio_tcp_cancel_req(struct xio_transport_base *transport,
+int xio_ucx_cancel_req(struct xio_transport_base *transport,
 		       struct xio_msg *req, uint64_t stag,
 		       void *ulp_msg, size_t ulp_msg_sz);
 
-int xio_tcp_cancel_rsp(struct xio_transport_base *transport,
+int xio_ucx_cancel_rsp(struct xio_transport_base *transport,
 		       struct xio_task *task, enum xio_status result,
 		       void *ulp_msg, size_t ulp_msg_sz);
 
-int xio_tcp_send_connect_msg(int fd, struct xio_tcp_connect_msg *msg);
+int xio_ucx_send_connect_msg(int fd, struct xio_ucx_connect_msg *msg);
 
-size_t xio_tcp_single_sock_set_txd(struct xio_task *task);
-size_t xio_tcp_dual_sock_set_txd(struct xio_task *task);
-void xio_tcp_single_sock_set_rxd(struct xio_task *task, void *buf,
+size_t xio_ucx_single_sock_set_txd(struct xio_task *task);
+size_t xio_ucx_dual_sock_set_txd(struct xio_task *task);
+void xio_ucx_single_sock_set_rxd(struct xio_task *task, void *buf,
 				 uint32_t len);
-void xio_tcp_dual_sock_set_rxd(struct xio_task *task, void *buf, uint32_t len);
+void xio_ucx_dual_sock_set_rxd(struct xio_task *task, void *buf, uint32_t len);
 
-int xio_tcp_rx_ctl_handler(struct xio_tcp_transport *tcp_hndl, int batch_nr);
-int xio_tcp_rx_data_handler(struct xio_tcp_transport *tcp_hndl, int batch_nr);
-int xio_tcp_recv_ctl_work(struct xio_tcp_transport *tcp_hndl, int fd,
-			  struct xio_tcp_work_req *xio_recv, int block);
-int xio_tcp_recvmsg_work(struct xio_tcp_transport *tcp_hndl, int fd,
-			 struct xio_tcp_work_req *xio_recv, int block);
+int xio_ucx_rx_ctl_handler(struct xio_ucx_transport *ucx_hndl, int batch_nr);
+int xio_ucx_rx_data_handler(struct xio_ucx_transport *ucx_hndl, int batch_nr);
+int xio_ucx_recv_ctl_work(struct xio_ucx_transport *ucx_hndl, int fd,
+			  struct xio_ucx_work_req *xio_recv, int block);
+int xio_ucx_recvmsg_work(struct xio_ucx_transport *ucx_hndl, int fd,
+			 struct xio_ucx_work_req *xio_recv, int block);
 
-void xio_tcp_disconnect_helper(void *xio_tcp_hndl);
+void xio_ucx_disconnect_helper(void *xio_ucx_hndl);
 
-int xio_tcp_xmit(struct xio_tcp_transport *tcp_hndl);
+int xio_ucx_xmit(struct xio_ucx_transport *ucx_hndl);
 
-#endif /* XIO_TCP_TRANSPORT_H_ */
+#endif /* XIO_UCX_TRANSPORT_H_ */
