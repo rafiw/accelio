@@ -1184,6 +1184,12 @@ void xio_ucx_conn_established_helper(int fd, struct xio_ucx_transport *ucx_hndl,
 			  xio_get_last_socket_error());
 		goto cleanup;
 	}
+	retval = ucx_hndl->tcp_sock.ops.close(&ucx_hndl->tcp_sock);
+	if (retval) {
+		ERROR_LOG("failed closing TCP socket. (errno=%d %m)\n",
+			  xio_get_last_socket_error());
+		goto cleanup;
+	}
 	return;
 
 	cleanup:
