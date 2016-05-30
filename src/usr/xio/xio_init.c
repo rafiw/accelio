@@ -65,9 +65,9 @@ static get_transport_func_list_t  transport_func_list_tbl[] = {
 #ifdef HAVE_INFINIBAND_VERBS_H
 	xio_rdma_get_transport_func_list,
 #endif
-#ifdef UCX
+/*#ifdef UCX*/
 	xio_ucx_get_transport_func_list,
-#endif
+/*#endif*/
 	xio_tcp_get_transport_func_list,
 
 };

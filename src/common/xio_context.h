@@ -103,7 +103,8 @@ struct xio_context {
 	int				polling_timeout;
 	unsigned int			flags;
 	uint64_t			worker;
-
+	/* transport data for now for ucx only */
+	void				*trans_data;
 	int32_t				run_private;
 
 	uint32_t			is_running:1;
@@ -125,7 +126,7 @@ struct xio_context {
 
 	int				max_conns_per_ctx;
 	int				rq_depth;
-	int				pad;
+
 #ifdef XIO_THREAD_SAFE_DEBUG
 	int                             nptrs;
 	int				pad1;

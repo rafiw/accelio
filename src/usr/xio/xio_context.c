@@ -130,6 +130,7 @@ struct xio_context *xio_context_create(struct xio_context_params *ctx_params,
 		ERROR_LOG("calloc failed. %m\n");
 		return NULL;
 	}
+	ctx->trans_data		= NULL;
 	ctx->ev_loop		= xio_ev_loop_create();
 	ctx->run_private	= 0;
 
@@ -696,8 +697,6 @@ int xio_ctx_pool_create(struct xio_context *ctx, enum xio_proto proto,
 	char				pool_name[64];
 	const char			*proto_str = xio_proto_str(proto);
 
-	if (proto == XIO_PROTO_UCX)
-		return 0;
 	/* get the transport's proto */
 	transport = xio_get_transport(proto_str);
 	if (!transport) {

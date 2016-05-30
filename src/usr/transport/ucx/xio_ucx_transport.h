@@ -38,6 +38,9 @@
 #ifndef XIO_UCX_TRANSPORT_H_
 #define XIO_UCX_TRANSPORT_H_
 
+#include "ucp/api/ucp.h"
+
+
 struct xio_ucx_transport;
 struct xio_ucx_socket;
 
@@ -47,6 +50,9 @@ struct xio_ucx_socket;
 extern double				g_mhz;
 
 /* definitions */
+#define XIO_UCP_TAG			-1
+#define XIO_TAG_MASK			1
+
 #define NUM_TASKS			54400 /* 100 * (MAX_SEND_WR +
 					      * MAX_RECV_WR + EXTRA_RQE)
 					      */
@@ -180,17 +186,27 @@ PACKED_MEMORY(struct xio_ucx_rsp_hdr {
 	uint64_t		ulp_imm_len;	/* ulp data length	*/
 });
 
-PACKED_MEMORY(struct xio_ucx_connect_msg {
-	enum xio_ucx_sock_type	sock_type;
-	uint16_t		second_port;
-	uint16_t		pad;
-});
+struct xio_ucp_worker {
+	ucp_worker_h		worker;
+	size_t			addr_len;
+	ucp_address_t		*addr;
+};
+
+struct xio_ucp_addr {
+	size_t		addr_len;
+	ucp_address_t	*addr;
+};
+
+struct xio_ucx_connect_msg {
+	size_t			length;
+	char			data[128];
+};
 
 PACKED_MEMORY(struct xio_ucx_setup_msg {
 	uint64_t		buffer_sz;
 	uint32_t		max_in_iovsz;
 	uint32_t		max_out_iovsz;
-	uint32_t                max_header_len;
+	uint32_t		max_header_len;
 	uint32_t		pad;
 });
 
@@ -257,8 +273,8 @@ struct xio_ucx_tasks_slab {
 struct xio_ucx_pending_conn {
 	int				fd;
 	int				waiting_for_bytes;
-	struct xio_ucx_connect_msg	msg;
 	union xio_sockaddr		sa;
+	struct xio_ucx_connect_msg	msg;
 	struct list_head		conns_list_entry;
 };
 
@@ -282,13 +298,10 @@ struct xio_ucx_socket_ops {
 
 struct xio_ucx_socket {
 	int				cfd;
-	int				dfd;
 	uint16_t			port_cfd;
-	uint16_t			port_dfd;
 	int				pad;
 	struct xio_ucx_socket_ops	ops[1];
 };
-
 struct xio_ucx_transport {
 	struct xio_transport_base	base;
 	struct xio_mempool		*ucx_mempool;
@@ -301,9 +314,10 @@ struct xio_ucx_transport {
 	struct list_head		rx_list;
 	struct list_head		io_list;
 
+	ucp_ep_h			ucp_ep;
 	struct xio_ucx_socket		sock;
 	uint16_t			is_listen;
-	uint8_t			        in_epoll[2];
+	uint8_t				in_epoll[2];
 
 	/* fast path params */
 	enum xio_transport_state	state;
@@ -355,7 +369,8 @@ struct xio_ucx_transport {
 };
 
 int xio_ucx_get_max_header_size(void);
-
+void xio_ucx_cb_addr_sent(void *user_context,ucs_status_t status);
+void xio_ucx_pending_ucx_handler(int fd, int events, void *user_context);
 int xio_ucx_get_inline_buffer_size(void);
 
 int xio_ucx_send(struct xio_transport_base *transport,
@@ -373,9 +388,6 @@ struct xio_task *xio_ucx_primary_task_lookup(
 
 struct xio_task *xio_ucx_primary_task_alloc(
 					struct xio_ucx_transport *ucx_hndl);
-
-void on_sock_disconnected(struct xio_ucx_transport *ucx_hndl,
-			  int notify_observer);
 
 int xio_ucx_cancel_req(struct xio_transport_base *transport,
 		       struct xio_msg *req, uint64_t stag,
@@ -403,5 +415,5 @@ int xio_ucx_recvmsg_work(struct xio_ucx_transport *ucx_hndl, int fd,
 void xio_ucx_disconnect_helper(void *xio_ucx_hndl);
 
 int xio_ucx_xmit(struct xio_ucx_transport *ucx_hndl);
-
+void xio_ucx_get_ucp_server_adrs(int fd, int events, void *user_context);
 #endif /* XIO_UCX_TRANSPORT_H_ */

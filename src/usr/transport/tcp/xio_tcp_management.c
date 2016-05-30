@@ -230,8 +230,8 @@ int xio_tcp_dual_sock_del_ev_handlers(struct xio_tcp_transport *tcp_hndl)
 /*---------------------------------------------------------------------------*/
 /* on_sock_disconnected							     */
 /*---------------------------------------------------------------------------*/
-void on_sock_disconnected(struct xio_tcp_transport *tcp_hndl,
-			  int passive_close)
+static void on_sock_disconnected(struct xio_tcp_transport *tcp_hndl,
+				 int passive_close)
 {
 	struct xio_tcp_pending_conn *pconn, *next_pconn;
 	int retval;

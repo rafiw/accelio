@@ -374,9 +374,6 @@ struct xio_task *xio_tcp_primary_task_lookup(
 struct xio_task *xio_tcp_primary_task_alloc(
 					struct xio_tcp_transport *tcp_hndl);
 
-void on_sock_disconnected(struct xio_tcp_transport *tcp_hndl,
-			  int notify_observer);
-
 int xio_tcp_cancel_req(struct xio_transport_base *transport,
 		       struct xio_msg *req, uint64_t stag,
 		       void *ulp_msg, size_t ulp_msg_sz);
