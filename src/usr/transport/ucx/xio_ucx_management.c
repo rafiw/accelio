@@ -478,20 +478,21 @@ void xio_ucx_consume_ctl_rx(void *xio_ucx_hndl)
 	}
 }
 
-/*---------------------------------------------------------------------------*/
-/* xio_ucx_ctl_ready_ev_handler						     */
-/*---------------------------------------------------------------------------*/
-void xio_ucx_ctl_ready_ev_handler(int fd, int events, void *user_context)
+/**
+ * this function listens on the ucx worker fd and invoked from epoll
+ * @param fd the fd that invoked the event
+ * @param events type of event
+ * @param user_context the transport handler
+ * @note the transport handler is not the one that will send the response
+ */
+void xio_ucx_handler(int fd, int events, void *user_context)
 {
 	struct xio_ucx_transport	*ucx_hndl = (struct xio_ucx_transport *)
 							user_context;
-
-	if (events & XIO_POLLOUT) {
-		xio_context_modify_ev_handler(ucx_hndl->base.ctx, fd,
-					      XIO_POLLIN | XIO_POLLRDHUP);
-		xio_ucx_xmit(ucx_hndl);
+	if (ucx_hndl->state ==  XIO_TRANSPORT_STATE_CONNECTING) {
+		xio_ucx_get_ucp_server_adrs(fd, events, user_context);
+		return;
 	}
-
 	if (events & XIO_POLLIN)
 		xio_ucx_consume_ctl_rx(ucx_hndl);
 
@@ -540,11 +541,13 @@ void xio_ucx_data_ready_ev_handler(int fd, int events, void *user_context)
 int xio_ucx_single_sock_add_ev_handlers(struct xio_ucx_transport *ucx_hndl)
 {
 	/* add to epoll */
+	struct xio_ucp_worker *worker = (struct xio_ucp_worker*)
+			ucx_hndl->base.ctx->trans_data;
 	int retval = xio_context_add_ev_handler(
 			ucx_hndl->base.ctx,
-			ucx_hndl->sock.cfd,
+			worker->fd,
 			XIO_POLLIN | XIO_POLLRDHUP,
-			xio_ucx_ctl_ready_ev_handler,
+			xio_ucx_handler,
 			ucx_hndl);
 
 	if (retval) {
@@ -1025,6 +1028,8 @@ static int xio_ucx_listen(struct xio_transport_base *transport,
 {
 	struct xio_ucx_transport *ucx_hndl =
 			(struct xio_ucx_transport *)transport;
+	struct xio_ucp_worker *worker = (struct xio_ucp_worker*)
+				ucx_hndl->base.ctx->trans_data;
 	union xio_sockaddr sa;
 	int sa_len;
 	int retval = 0;
@@ -1156,13 +1161,7 @@ void xio_ucx_conn_established_helper(int fd, struct xio_ucx_transport *ucx_hndl,
 		goto cleanup;
 	}
 	ucx_hndl->state = XIO_TRANSPORT_STATE_CONNECTING;
-	status = ucp_worker_get_efd(worker->worker, &ucp_fd);
-	if (status != UCS_OK) {
-		ERROR_LOG("failed geting ucp efd %d\n", status);
-		goto cleanup;
-	}
-	/*call function to get the server address and create ucp ep*/
-	/* get address from the server */
+
 	ucp_worker_arm(worker->worker);
 	if (retval) {
 		ERROR_LOG("setting connection handler failed. "
@@ -1170,11 +1169,7 @@ void xio_ucx_conn_established_helper(int fd, struct xio_ucx_transport *ucx_hndl,
 				xio_get_last_socket_error());
 		goto cleanup;
 	}
-	retval = xio_context_add_ev_handler(ucx_hndl->base.ctx,
-					    ucp_fd,
-					    XIO_POLLIN | XIO_POLLRDHUP,
-					    xio_ucx_get_ucp_server_adrs,
-					    ucx_hndl);
+	retval = xio_context_del_ev_handler(ucx_hndl->base.ctx, fd);
 
 	if (retval)
 		goto cleanup;
@@ -1218,7 +1213,6 @@ void xio_ucx_get_ucp_server_adrs(int fd, int events, void *user_context)
 			(struct xio_ucp_worker*)ucx_hndl->base.ctx->trans_data;
 	ucp_tag_recv_info_t tag_info;
 	ucp_tag_message_h tag_msg;
-	int retval;
 	ucs_status_ptr_t status;
 
 	tag_msg = ucp_tag_probe_nb(worker->worker, XIO_UCP_TAG, XIO_TAG_MASK,
@@ -1244,14 +1238,7 @@ void xio_ucx_get_ucp_server_adrs(int fd, int events, void *user_context)
 	/* remove and set new handlers */
 	ucp_ep_create(worker->worker, (ucp_address_t*)msg.data,
 			&ucx_hndl->ucp_ep);
-	retval = xio_context_del_ev_handler(ucx_hndl->base.ctx, fd);
-	retval = ucx_hndl->sock.ops->add_ev_handlers(ucx_hndl);
-	if (retval) {
-		ERROR_LOG("setting connection handler failed. "
-				"(errno=%d %m)\n",
-				xio_get_last_socket_error());
-		goto back_to_epoll;
-	}
+
 	xio_transport_notify_observer(&ucx_hndl->base,
 					XIO_TRANSPORT_EVENT_ESTABLISHED,
 					NULL);
@@ -1344,9 +1331,10 @@ int xio_ucx_single_sock_connect(struct xio_ucx_transport *ucx_hndl,
 				socklen_t sa_len)
 {
 	int retval;
-
-	retval = xio_ucx_connect_helper(ucx_hndl->sock.cfd, sa, sa_len,
-					&ucx_hndl->sock.port_cfd,
+	struct xio_ucp_worker *worker = (struct xio_ucp_worker *)
+			ucx_hndl->base.ctx->trans_data;
+	retval = xio_ucx_connect_helper(ucx_hndl->tcp_sock.cfd, sa, sa_len,
+					&ucx_hndl->tcp_sock.port_cfd,
 					&ucx_hndl->base.local_addr);
 	if (retval)
 		return retval;
@@ -1355,7 +1343,15 @@ int xio_ucx_single_sock_connect(struct xio_ucx_transport *ucx_hndl,
 			ucx_hndl->base.ctx,
 			ucx_hndl->tcp_sock.cfd,
 			XIO_POLLOUT | XIO_POLLRDHUP | XIO_ONESHOT,
-			xio_ucx_single_conn_established_ev_handler, ucx_hndl);
+			xio_ucx_single_conn_established_ev_handler,
+			ucx_hndl);
+	ucp_worker_arm(worker->worker);
+	retval = xio_context_add_ev_handler(
+			ucx_hndl->base.ctx,
+			worker->fd,
+			XIO_POLLIN | XIO_POLLRDHUP,
+			xio_ucx_handler,
+			ucx_hndl);
 	if (retval) {
 		ERROR_LOG("setting connection handler failed. (errno=%d %m)\n",
 				xio_get_last_socket_error());
@@ -1488,6 +1484,11 @@ static int xio_ucx_transport_open(struct xio_ucx_transport *ucx_hndl)
 		goto err_worker;
 	}
 
+	status = ucp_worker_get_efd(worker->worker, &worker->fd);
+	if (status) {
+		ERROR_LOG("failed getting ucp epoll fd %d\n",status);
+		goto err_worker;
+	}
 	return 0;
 
 	err_worker:
