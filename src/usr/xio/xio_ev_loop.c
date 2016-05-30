@@ -143,7 +143,7 @@ int xio_ev_loop_add(void *loop_hndl, int fd, int events,
 
 		list_add(&tev->events_list_entry, &loop->poll_events_list);
 	}
-
+	ERROR_LOG("addind fd %d to epoll fd %d\n",fd,loop->efd);
 	ev.data.ptr = tev;
 	err = epoll_ctl(loop->efd, EPOLL_CTL_ADD, fd, &ev);
 	if (err) {

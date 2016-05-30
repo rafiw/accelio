@@ -764,20 +764,21 @@ void xio_ucx_handle_pending_conn(int fd,
 				 int error)
 {
 	int retval;
-	struct xio_ucx_pending_conn	*pconn, *next_pconn;
-	struct xio_ucx_pending_conn	*pending_conn = NULL, *ctl_conn = NULL;
+	struct xio_ucx_pending_conn *pconn, *next_pconn;
+	struct xio_ucx_pending_conn *pending_conn = NULL, *ctl_conn = NULL;
 	void *buf;
-	struct xio_ucp_worker		*worker = (struct xio_ucp_worker*)
-						ucx_hndl->base.ctx->trans_data;
-	ucs_status_t			status;
-	ucs_status_ptr_t		h_status;
-	ucp_address_t			*ucp_addr;
-	struct xio_ucx_connect_msg	addr;
-	union xio_transport_event_data	ev_data;
+	struct xio_ucp_worker *worker =
+			(struct xio_ucp_worker*)ucx_hndl->base.ctx->trans_data;
+	ucs_status_t status;
+	ucs_status_ptr_t h_status;
+	ucp_address_t *ucp_addr;
+	struct xio_ucp_callback_data *handle;
+	struct xio_ucx_connect_msg addr;
 
 	list_for_each_entry_safe(pconn, next_pconn,
-				 &ucx_hndl->pending_conns,
-				 conns_list_entry) {
+			&ucx_hndl->pending_conns,
+			conns_list_entry)
+	{
 		if (pconn->fd == fd) {
 			pending_conn = pconn;
 			break;
@@ -790,17 +791,17 @@ void xio_ucx_handle_pending_conn(int fd,
 	}
 
 	if (error) {
-		DEBUG_LOG("epoll returned with error=%d for fd=%d\n",
-			  error, fd);
+		DEBUG_LOG("epoll returned with error=%d for fd=%d\n", error,
+				fd);
 		goto cleanup1;
 	}
 	memset(&pending_conn->msg, 0, sizeof(pending_conn->msg));
 	buf = &pending_conn->msg;
-	inc_ptr(buf, sizeof(struct xio_ucx_connect_msg) -
-			pending_conn->waiting_for_bytes);
+	inc_ptr(buf,
+		sizeof(struct xio_ucx_connect_msg) - pending_conn->waiting_for_bytes);
 	while (pending_conn->waiting_for_bytes) {
-		retval = recv(fd, (char *)buf,
-			      pending_conn->waiting_for_bytes, 0);
+		retval = recv(fd, (char *)buf, pending_conn->waiting_for_bytes,
+				0);
 		if (retval > 0) {
 			pending_conn->waiting_for_bytes -= retval;
 			inc_ptr(buf, retval);
@@ -810,7 +811,7 @@ void xio_ucx_handle_pending_conn(int fd,
 		} else {
 			if (xio_get_last_socket_error() != XIO_EAGAIN) {
 				ERROR_LOG("recv return with errno=%d\n",
-					  xio_get_last_socket_error());
+						xio_get_last_socket_error());
 				goto cleanup1;
 			}
 			return;
@@ -822,11 +823,10 @@ void xio_ucx_handle_pending_conn(int fd,
 	ctl_conn = pending_conn;
 
 	list_del(&ctl_conn->conns_list_entry);
-	retval = xio_context_del_ev_handler(ucx_hndl->base.ctx,
-					    ctl_conn->fd);
+	retval = xio_context_del_ev_handler(ucx_hndl->base.ctx, ctl_conn->fd);
 	if (retval) {
 		ERROR_LOG("removing connection handler failed.(errno=%d %m)\n",
-			  xio_get_last_socket_error());
+				xio_get_last_socket_error());
 	}
 
 	ucp_addr = (ucp_address_t*)pending_conn->msg.data;
@@ -834,7 +834,7 @@ void xio_ucx_handle_pending_conn(int fd,
 	if (status != UCS_OK) {
 		xio_set_error(xio_get_last_socket_error());
 		ERROR_LOG("ucx getsockname failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
+				xio_get_last_socket_error());
 		goto cleanup2;
 	}
 	addr.length = worker->addr_len;
@@ -842,36 +842,34 @@ void xio_ucx_handle_pending_conn(int fd,
 
 	/* send server worker address using ucp */
 	h_status = ucp_tag_send_nb(ucx_hndl->ucp_ep, &addr, sizeof(addr),
-			ucp_dt_make_contig(1), XIO_UCP_TAG,
-			xio_ucx_cb_addr_sent);
-	if (UCS_PTR_IS_ERR(h_status)){
+	XIO_CONTIG,
+					XIO_UCP_TAG, xio_ucx_general_send_cb);
+	if (UCS_PTR_IS_ERR(h_status)) {
 		ERROR_LOG("UCS PTR returned ERR\n");
 		goto cleanup2;
+	} else if (UCS_PTR_STATUS(h_status) != UCS_OK) {
+		handle = (struct xio_ucp_callback_data *)h_status;
+		handle->transport = ucx_hndl;
+		/*RAFI : need to cancel while loop */
+		while (handle->completed == 0) {
+			ucp_worker_progress(worker->worker);
+			return;
+		}
 	}
-	ucp_worker_progress(worker->worker);
-
-	ucx_hndl->state = XIO_TRANSPORT_STATE_CONNECTING;
-	ev_data.new_connection.child_trans_hndl =
-			(struct xio_transport_base*)ucx_hndl;
-
-	xio_transport_notify_observer((struct xio_transport_base *)ucx_hndl,
-				      XIO_TRANSPORT_EVENT_NEW_CONNECTION,
-				      &ev_data);
+	xio_ucx_addr_send((void*)ucx_hndl);
 	return;
 
-cleanup1:
-	list_del(&pending_conn->conns_list_entry);
+	cleanup1: list_del(&pending_conn->conns_list_entry);
 	ufree(pending_conn);
-cleanup2:
+	cleanup2:
 	/*remove from epoll*/
 	retval = xio_context_del_ev_handler(ucx_hndl->base.ctx, fd);
 	if (retval) {
-		ERROR_LOG(
-		"removing connection handler failed.(errno=%d %m)\n",
-		xio_get_last_socket_error());
+		ERROR_LOG("removing connection handler failed.(errno=%d %m)\n",
+				xio_get_last_socket_error());
 	}
-/*cleanup3:
-	xio_closesocket(fd);*/
+	/*cleanup3:
+	 xio_closesocket(fd);*/
 }
 
 /**
@@ -882,51 +880,69 @@ cleanup2:
  */
 void xio_ucx_pending_conn_ev_handler(int fd, int events, void *user_context)
 {
-	struct xio_ucx_transport *ucx_hndl = (struct xio_ucx_transport *)
-						user_context;
+	struct xio_ucx_transport *ucx_hndl =
+			(struct xio_ucx_transport *)user_context;
 
 	xio_ucx_handle_pending_conn(
 			fd, ucx_hndl,
-			events &
-			(XIO_POLLHUP | XIO_POLLRDHUP | XIO_POLLERR));
+			events & (XIO_POLLHUP | XIO_POLLRDHUP | XIO_POLLERR));
 }
 /*
- * this function is called by ucx after sending the local server
- * address to the client to tell the nexus about the connection
+ * this function is called by ucx cb or by the pending connection handler
+ * to tell nexus about new connection
  */
-void xio_ucx_cb_addr_sent(void *user_context,ucs_status_t status)
+void xio_ucx_addr_send(void *user_context)
 {
-	ERROR_LOG("in CB");
-	ucp_request_release(user_context);
-/*	xio_transport_notify_observer((struct xio_transport_base *)ucx_hndl,
-				      XIO_TRANSPORT_EVENT_NEW_CONNECTION,
-				      &ev_data);*/
+	union xio_transport_event_data ev_data;
+	struct xio_ucp_callback_data *handle =
+			(struct xio_ucp_callback_data*)user_context;
+	if (handle->transport) {
+		handle->transport->state = XIO_TRANSPORT_STATE_CONNECTING;
+		ev_data.new_connection.child_trans_hndl =
+				(struct xio_transport_base*)handle->transport;
+
+		xio_transport_notify_observer(
+				(struct xio_transport_base *)handle->transport,
+				XIO_TRANSPORT_EVENT_NEW_CONNECTION,
+				&ev_data);
+	}
 }
 
 /**
- * send server's workers adress to the client
- * @param fd fd to send the data from
- * @param events
+ * this is a general function used for signaling the message was sent
  * @param user_context
-
-void xio_ucx_pending_ucx_handler(int fd, int events, void *user_context)
+ * @param status
+ */
+void xio_ucx_general_send_cb(void *user_context, ucs_status_t status)
 {
-	struct xio_ucx_transport *ucx_hndl = (struct xio_ucx_transport *)
-						user_context;
-	struct xio_ucp_worker		*worker = (struct xio_ucp_worker*)
-					ucx_hndl->base.ctx->trans_data;
-	struct xio_ucx_connect_msg	addr;
+	struct xio_ucp_callback_data *handle =
+			(struct xio_ucp_callback_data*)user_context;
+	ERROR_LOG("UCX send clb called");
+	if (likely((status == UCS_OK)))
+		handle->completed = 1;
+	else
+		ERROR_LOG("Go error %d when receiving data from UCX\n", status);
 
-	addr.length = worker->addr_len;
-	memcpy(addr.data, worker->addr, worker->addr_len);
+}
 
-	 send server worker address using ucp
-	ucp_tag_send_sync_nb(ucx_hndl->ucp_ep, &addr, sizeof(addr),
-			ucp_dt_make_contig(1), XIO_UCP_TAG,
-			xio_ucx_cb_addr_sent);
+/**
+ * this is a general function used for signaling the message was received
+ * @param request
+ * @param status
+ * @param info
+ */
+void xio_ucx_general_recv_cb(void *request, ucs_status_t status,
+			     ucp_tag_recv_info_t *info)
+{
+	struct xio_ucp_callback_data *handle =
+			(struct xio_ucp_callback_data*)request;
+	ERROR_LOG("UCX rcv clb called");
+	if (likely((status == UCS_OK)))
+		handle->completed = 1;
+	else
+		ERROR_LOG("Go error %d when reciveing data from UCX\n", status);
 
-}*/
-
+}
 /**
  * this function handles new connection flow.
  * @param parent_hndl
@@ -938,13 +954,13 @@ void xio_ucx_new_connection(struct xio_ucx_transport *ucx_hndl)
 	struct xio_ucx_pending_conn *pending_conn;
 
 	/*allocate pending fd struct */
-	pending_conn = (struct xio_ucx_pending_conn *)
-				ucalloc(1, sizeof(struct xio_ucx_pending_conn));
+	pending_conn = (struct xio_ucx_pending_conn *)ucalloc(
+			1, sizeof(struct xio_ucx_pending_conn));
 	if (!pending_conn) {
 		xio_set_error(ENOMEM);
 		ERROR_LOG("ucalloc failed. %m\n");
 		xio_transport_notify_observer_error(&ucx_hndl->base,
-						    xio_errno());
+							xio_errno());
 		return;
 	}
 
@@ -953,27 +969,26 @@ void xio_ucx_new_connection(struct xio_ucx_transport *ucx_hndl)
 	/* "accept" the connection */
 	retval = xio_accept_non_blocking(
 			ucx_hndl->sock.cfd,
-			(struct sockaddr *)&pending_conn->sa.sa_stor,
+			(struct sockaddr * )&pending_conn->sa.sa_stor,
 			&len);
 	if (retval < 0) {
 		xio_set_error(xio_get_last_socket_error());
 		ERROR_LOG("ucx accept failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
+				xio_get_last_socket_error());
 		ufree(pending_conn);
 		return;
 	}
 	pending_conn->fd = retval;
 
 	list_add_tail(&pending_conn->conns_list_entry,
-		      &ucx_hndl->pending_conns);
+			&ucx_hndl->pending_conns);
 
 	/* add to epoll */
-	retval = xio_context_add_ev_handler(
-			ucx_hndl->base.ctx,
-			pending_conn->fd,
-			XIO_POLLIN | XIO_POLLRDHUP,
-			xio_ucx_pending_conn_ev_handler,
-			ucx_hndl);
+	retval = xio_context_add_ev_handler(ucx_hndl->base.ctx,
+						pending_conn->fd,
+						XIO_POLLIN | XIO_POLLRDHUP,
+						xio_ucx_pending_conn_ev_handler,
+						ucx_hndl);
 	if (retval)
 		ERROR_LOG("adding pending_conn_ev_handler failed\n");
 }
@@ -986,15 +1001,16 @@ void xio_ucx_new_connection(struct xio_ucx_transport *ucx_hndl)
  */
 void xio_ucx_listener_ev_handler(int fd, int events, void *user_context)
 {
-	struct xio_ucx_transport *ucx_hndl = (struct xio_ucx_transport *)
-						user_context;
+	struct xio_ucx_transport *ucx_hndl =
+			(struct xio_ucx_transport *)user_context;
 	/* server only */
 	if (events & XIO_POLLIN)
 		xio_ucx_new_connection(ucx_hndl);
 
 	if ((events & (XIO_POLLHUP | XIO_POLLERR))) {
 		DEBUG_LOG("epoll returned with error events=%d for fd=%d\n",
-			  events, fd);
+				events,
+				fd);
 		xio_ucx_disconnect_helper(ucx_hndl);
 	}
 }
@@ -1008,15 +1024,16 @@ void xio_ucx_listener_ev_handler(int fd, int events, void *user_context)
  * @return
  */
 static int xio_ucx_listen(struct xio_transport_base *transport,
-			  const char *portal_uri, uint16_t *src_port,
+			  const char *portal_uri,
+			  uint16_t *src_port,
 			  int backlog)
 {
 	struct xio_ucx_transport *ucx_hndl =
-		(struct xio_ucx_transport *)transport;
-	union xio_sockaddr	sa;
-	int			sa_len;
-	int			retval = 0;
-	uint16_t		sport;
+			(struct xio_ucx_transport *)transport;
+	union xio_sockaddr sa;
+	int sa_len;
+	int retval = 0;
+	uint16_t sport;
 
 	/* resolve the portal_uri */
 	sa_len = xio_uri_to_ss(portal_uri, &sa.sa_stor);
@@ -1028,47 +1045,44 @@ static int xio_ucx_listen(struct xio_transport_base *transport,
 	ucx_hndl->base.is_client = 0;
 
 	/* bind */
-	retval = bind(ucx_hndl->sock.cfd,
-		      (struct sockaddr *)&sa.sa_stor,
-		      sa_len);
+	retval = bind(ucx_hndl->sock.cfd, (struct sockaddr *)&sa.sa_stor,
+			sa_len);
 	if (retval) {
 		xio_set_error(xio_get_last_socket_error());
 		ERROR_LOG("ucx bind failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
+				xio_get_last_socket_error());
 		goto exit1;
 	}
 
 	ucx_hndl->is_listen = 1;
 
-	retval  = listen(ucx_hndl->sock.cfd,
-			 backlog > 0 ? backlog : MAX_BACKLOG);
+	retval = listen(ucx_hndl->sock.cfd,
+			backlog > 0 ? backlog : MAX_BACKLOG);
 	if (retval) {
 		xio_set_error(xio_get_last_socket_error());
 		ERROR_LOG("ucx listen failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
+				xio_get_last_socket_error());
 		goto exit1;
 	}
 
 	/* add to epoll */
-	retval = xio_context_add_ev_handler(
-			ucx_hndl->base.ctx,
-			ucx_hndl->sock.cfd,
-			XIO_POLLIN,
-			xio_ucx_listener_ev_handler,
-			ucx_hndl);
+	retval = xio_context_add_ev_handler(ucx_hndl->base.ctx,
+						ucx_hndl->sock.cfd,
+						XIO_POLLIN,
+						xio_ucx_listener_ev_handler,
+						ucx_hndl);
 	if (retval) {
 		ERROR_LOG("xio_context_add_ev_handler failed.\n");
 		goto exit1;
 	}
-        ucx_hndl->in_epoll[0] = 1;
+	ucx_hndl->in_epoll[0] = 1;
 
-	retval  = getsockname(ucx_hndl->sock.cfd,
-			      (struct sockaddr *)&sa.sa_stor,
-			      (socklen_t *)&sa_len);
+	retval = getsockname(ucx_hndl->sock.cfd, (struct sockaddr *)&sa.sa_stor,
+				(socklen_t *)&sa_len);
 	if (retval) {
 		xio_set_error(xio_get_last_socket_error());
 		ERROR_LOG("getsockname failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
+				xio_get_last_socket_error());
 		goto exit;
 	}
 
@@ -1093,16 +1107,10 @@ static int xio_ucx_listen(struct xio_transport_base *transport,
 
 	return 0;
 
-exit1:
-	ucx_hndl->sock.ops->del_ev_handlers = NULL;
-exit:
-	return -1;
+	exit1: ucx_hndl->sock.ops->del_ev_handlers = NULL;
+	exit: return -1;
 }
-void xio_ucx_get_ucp_add_cb(void *request, ucs_status_t status,
-                ucp_tag_recv_info_t *info)
-{
-	puts("in CB\n");
-}
+
 /**
  * this function is used by the client to send the connection message to the
  * server.
@@ -1111,123 +1119,83 @@ void xio_ucx_get_ucp_add_cb(void *request, ucs_status_t status,
  * @param msg
  * @param error
  */
-void xio_ucx_conn_established_helper(int fd,
-				     struct xio_ucx_transport *ucx_hndl,
-				     struct xio_ucx_connect_msg	*msg,
+void xio_ucx_conn_established_helper(int fd, struct xio_ucx_transport *ucx_hndl,
+				     struct xio_ucx_connect_msg *msg,
 				     int error)
 {
-	int				retval = 0;
-	int				so_error = 0;
-	int 				ucp_fd = 0;
-	socklen_t			len = sizeof(so_error);
-	struct xio_ucp_worker		*worker = (struct xio_ucp_worker*)
-						ucx_hndl->base.ctx->trans_data;
-	ucp_tag_recv_info_t info_tag;
-	ucp_tag_message_h message;
-	ucs_status_t			status;
-	ucs_status_ptr_t		ptr_stat;
-	struct xio_ucx_connect_msg	res_msg;
-	/* remove from epoll */
-	retval = xio_context_del_ev_handler(ucx_hndl->base.ctx,
-					    ucx_hndl->sock.cfd);
-	if (retval) {
-		ERROR_LOG("removing connection handler failed.(errno=%d %m)\n",
-			  xio_get_last_socket_error());
-		goto cleanup;
-	}
+	int retval = 0;
+	int so_error = 0;
+	int ucp_fd = 0;
+	socklen_t len = sizeof(so_error);
+	struct xio_ucp_worker *worker =
+			(struct xio_ucp_worker*)ucx_hndl->base.ctx->trans_data;
+	ucs_status_t status;
 
-	retval = getsockopt(ucx_hndl->sock.cfd,
-			    SOL_SOCKET,
-			    SO_ERROR,
-			    (char *)&so_error,
-			    &len);
+	retval = getsockopt(fd,
+	SOL_SOCKET,
+				SO_ERROR, (char *)&so_error, &len);
 	if (retval) {
 		ERROR_LOG("getsockopt failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
+				xio_get_last_socket_error());
 		so_error = xio_get_last_socket_error();
 	}
 	if (so_error || error) {
 		DEBUG_LOG("fd=%d connection establishment failed\n",
-			  ucx_hndl->sock.cfd);
+				ucx_hndl->sock.cfd);
 		DEBUG_LOG("so_error=%d, epoll_error=%d\n", so_error, error);
 		ucx_hndl->sock.ops->del_ev_handlers = NULL;
 		goto cleanup;
 	}
 
 	len = sizeof(ucx_hndl->base.peer_addr);
-	retval = getpeername(ucx_hndl->sock.cfd,
-			     (struct sockaddr *)&ucx_hndl->base.peer_addr,
-			     &len);
+	retval = getpeername(fd, (struct sockaddr *)&ucx_hndl->base.peer_addr,
+				&len);
 	if (retval) {
 		xio_set_error(xio_get_last_socket_error());
 		ERROR_LOG("ucx getpeername failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
+				xio_get_last_socket_error());
 		so_error = xio_get_last_socket_error();
 		goto cleanup;
 	}
 	ucx_hndl->state = XIO_TRANSPORT_STATE_CONNECTING;
+	status = ucp_worker_get_efd(worker->worker, &ucp_fd);
+	if (status != UCS_OK) {
+		ERROR_LOG("failed geting ucp efd %d\n", status);
+		goto cleanup;
+	}
+	/*call function to get the server address and create ucp ep*/
+	/* get address from the server */
+	ucp_worker_arm(worker->worker);
+	if (retval) {
+		ERROR_LOG("setting connection handler failed. "
+				"(errno=%d %m)\n",
+				xio_get_last_socket_error());
+		goto cleanup;
+	}
+	retval = xio_context_add_ev_handler(ucx_hndl->base.ctx, ucp_fd,
+						XIO_POLLIN | XIO_POLLRDHUP,
+						xio_ucx_get_ucp_server_adrs,
+						ucx_hndl);
 
-	retval = xio_ucx_send_connect_msg(ucx_hndl->sock.cfd, msg);
 	if (retval)
 		goto cleanup;
-	/* get address from the server */
-/*	status = ucp_worker_get_efd(worker->worker, &ucp_fd);
-	if (status != UCS_OK) {
-		ERROR_LOG("failed geting ucp efd %d\n",status);
+	retval = xio_ucx_send_connect_msg(ucx_hndl->sock.cfd, msg);
+	if (retval) {
+		ERROR_LOG("setting connection handler failed. "
+				"(errno=%d %m)\n",
+				xio_get_last_socket_error());
 		goto cleanup;
 	}
-	 call function to get the server address and create ucp ep
-	ucp_worker_arm(worker->worker);*/
-	while (1){
-		ucp_worker_progress(worker->worker);
-		message = ucp_tag_probe_nb(worker->worker, XIO_UCP_TAG,
-					   XIO_TAG_MASK,1, &info_tag);
-		if (message)
-			break;
-	}
-	ptr_stat= ucp_tag_msg_recv_nb(worker->worker, &res_msg, sizeof(res_msg),
-			    ucp_dt_make_contig(1),message,
-			    xio_ucx_get_ucp_add_cb);
-	if (UCS_PTR_IS_ERR(ptr_stat)){
-		ERROR_LOG("GOT ERR\n");
-	}
-	/* create ep */
-	status = ucp_ep_create(worker->worker,(ucp_address_t*)res_msg.data, &ucx_hndl->ucp_ep);
-	if (status != UCS_OK) {
-		xio_set_error(xio_get_last_socket_error());
-		ERROR_LOG("ucx getsockname failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
-		return;
-	}
-	/*retval = xio_context_del_ev_handler(ucx_hndl->base.ctx, fd);*/
-	/* add to epoll */
-	retval = ucx_hndl->sock.ops->add_ev_handlers(ucx_hndl);
-	if (retval) {
-		ERROR_LOG("setting connection handler failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
-		return;
-	}
-	xio_transport_notify_observer(&ucx_hndl->base,
-				      XIO_TRANSPORT_EVENT_ESTABLISHED,
-				      NULL);
-	return;
-	retval = xio_context_add_ev_handler(
-				ucx_hndl->base.ctx,
-				ucp_fd,
-				XIO_POLLIN | XIO_POLLRDHUP,
-				xio_ucx_get_ucp_server_adrs,
-				ucx_hndl);
 	return;
 
-cleanup:
-	if  (so_error == XIO_ECONNREFUSED)
+	cleanup: if (so_error == XIO_ECONNREFUSED)
 		xio_transport_notify_observer(&ucx_hndl->base,
-					      XIO_TRANSPORT_EVENT_REFUSED,
-					      NULL);
+						XIO_TRANSPORT_EVENT_REFUSED,
+						NULL);
 	else
-		xio_transport_notify_observer_error(&ucx_hndl->base,
-						    so_error ? so_error :
-						    XIO_E_CONNECT_ERROR);
+		xio_transport_notify_observer_error(
+				&ucx_hndl->base,
+				so_error ? so_error : XIO_E_CONNECT_ERROR);
 }
 
 /**
@@ -1238,31 +1206,54 @@ cleanup:
  */
 void xio_ucx_get_ucp_server_adrs(int fd, int events, void *user_context)
 {
-	struct xio_ucx_transport	*ucx_hndl = (struct xio_ucx_transport *)
-							user_context;
-	struct xio_ucp_worker		*worker = (struct xio_ucp_worker*)
-						ucx_hndl->base.ctx->trans_data;
-	struct xio_ucx_connect_msg	msg;
+	struct xio_ucx_connect_msg msg;
+	struct xio_ucx_transport *ucx_hndl =
+			(struct xio_ucx_transport *)user_context;
+	struct xio_ucp_worker *worker =
+			(struct xio_ucp_worker*)ucx_hndl->base.ctx->trans_data;
+	ucp_tag_recv_info_t tag_info;
+	ucp_tag_message_h tag_msg;
 	int retval;
 	ucs_status_ptr_t status;
-
-	status = ucp_tag_recv_nb(worker->worker, &msg,sizeof(msg),
-			    ucp_dt_make_contig(1),XIO_UCP_TAG, 0xffffffff,
-			    xio_ucx_get_ucp_add_cb);
-	if (UCS_PTR_IS_ERR(status)){
-		ERROR_LOG("GOT ERR\n");
+	ERROR_LOG("INVOKED good work!!!\n");
+	tag_msg = ucp_tag_probe_nb(worker->worker, XIO_UCP_TAG, XIO_TAG_MASK,
+	XIO_UCX_REMOVE,
+					&tag_info);
+	/* if there is no message rearm and return to epoll */
+	if (tag_msg == NULL)
+		goto back_to_epoll;
+	/* we got something were not expecting */
+	if (tag_info.length != sizeof(msg)) {
+		ERROR_LOG("Got messages not expecting\n");
+		goto back_to_epoll;
 	}
+	status = ucp_tag_msg_recv_nb(worker->worker, &msg, sizeof(msg),
+	XIO_CONTIG,
+					tag_msg, xio_ucx_general_recv_cb);
+	if (UCS_PTR_IS_ERR(status)) {
+		ERROR_LOG("Got err while sending ucx address %d\n", status);
+		goto back_to_epoll;
+	} else {
+		while (((struct xio_ucp_callback_data *)status)->completed == 0) {
+			ucp_worker_progress(worker->worker);
+		}
+	}
+	/* remove and set new handlers */
+	ucp_ep_create(worker->worker, (ucp_address_t*)msg.data,
+			&ucx_hndl->ucp_ep);
 	retval = xio_context_del_ev_handler(ucx_hndl->base.ctx, fd);
-	/* add to epoll */
 	retval = ucx_hndl->sock.ops->add_ev_handlers(ucx_hndl);
 	if (retval) {
-		ERROR_LOG("setting connection handler failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
-		return;
+		ERROR_LOG("setting connection handler failed. "
+				"(errno=%d %m)\n",
+				xio_get_last_socket_error());
+		goto back_to_epoll;
 	}
 	xio_transport_notify_observer(&ucx_hndl->base,
-				      XIO_TRANSPORT_EVENT_ESTABLISHED,
-				      NULL);
+					XIO_TRANSPORT_EVENT_ESTABLISHED,
+					NULL);
+	back_to_epoll: ucp_worker_arm(worker->worker);
+	return;
 }
 
 /**
@@ -1271,29 +1262,27 @@ void xio_ucx_get_ucp_server_adrs(int fd, int events, void *user_context)
  * @param events events from epoll
  * @param user_context - transport
  */
-void xio_ucx_single_conn_established_ev_handler(int fd,
-						int events, void *user_context)
+void xio_ucx_single_conn_established_ev_handler(int fd, int events,
+						void *user_context)
 {
-	struct xio_ucx_transport	*ucx_hndl = (struct xio_ucx_transport *)
-							user_context;
-	struct xio_ucp_worker		*worker = (struct xio_ucp_worker*)
-						ucx_hndl->base.ctx->trans_data;
-	struct xio_ucx_connect_msg	msg;
+	struct xio_ucx_transport *ucx_hndl =
+			(struct xio_ucx_transport *)user_context;
+	struct xio_ucp_worker *worker =
+			(struct xio_ucp_worker*)ucx_hndl->base.ctx->trans_data;
+	struct xio_ucx_connect_msg msg;
 
 	memcpy(msg.data, worker->addr, worker->addr_len);
 	msg.length = (uint16_t)worker->addr_len;
 	xio_ucx_conn_established_helper(
-				fd, ucx_hndl, &msg,
-				events &
-				(XIO_POLLERR | XIO_POLLHUP | XIO_POLLRDHUP));
+			fd, ucx_hndl, &msg,
+			events & (XIO_POLLERR | XIO_POLLHUP | XIO_POLLRDHUP));
 }
-
 
 /*---------------------------------------------------------------------------*/
 /* xio_ucx_connect_helper	                                             */
 /*---------------------------------------------------------------------------*/
-static int xio_ucx_connect_helper(int fd, struct sockaddr *sa,
-				  socklen_t sa_len, uint16_t *bound_port,
+static int xio_ucx_connect_helper(int fd, struct sockaddr *sa, socklen_t sa_len,
+				  uint16_t *bound_port,
 				  struct sockaddr_storage *lss)
 {
 	int retval;
@@ -1308,7 +1297,7 @@ static int xio_ucx_connect_helper(int fd, struct sockaddr *sa,
 		} else {
 			xio_set_error(xio_get_last_socket_error());
 			ERROR_LOG("ucx connect failed. (errno=%d %m)\n",
-				  xio_get_last_socket_error());
+					xio_get_last_socket_error());
 			return retval;
 		}
 	} else {
@@ -1322,7 +1311,7 @@ static int xio_ucx_connect_helper(int fd, struct sockaddr *sa,
 	if (retval) {
 		xio_set_error(xio_get_last_socket_error());
 		ERROR_LOG("ucx getsockname failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
+				xio_get_last_socket_error());
 		return retval;
 	}
 
@@ -1332,7 +1321,7 @@ static int xio_ucx_connect_helper(int fd, struct sockaddr *sa,
 		*bound_port = ntohs(lsa->sa_in6.sin6_port);
 	} else {
 		ERROR_LOG("getsockname unknown family = %d\n",
-			  lsa->sa.sa_family);
+				lsa->sa.sa_family);
 		return -1;
 	}
 
@@ -1358,16 +1347,13 @@ int xio_ucx_single_sock_connect(struct xio_ucx_transport *ucx_hndl,
 	if (retval)
 		return retval;
 
-	/* add to epoll */
 	retval = xio_context_add_ev_handler(
-			ucx_hndl->base.ctx,
-			ucx_hndl->sock.cfd,
-			XIO_POLLOUT | XIO_POLLRDHUP,
-			xio_ucx_single_conn_established_ev_handler,
-			ucx_hndl);
+			ucx_hndl->base.ctx, ucx_hndl->sock.cfd,
+			XIO_POLLOUT | XIO_POLLRDHUP | XIO_ONESHOT,
+			xio_ucx_single_conn_established_ev_handler, ucx_hndl);
 	if (retval) {
 		ERROR_LOG("setting connection handler failed. (errno=%d %m)\n",
-			  xio_get_last_socket_error());
+				xio_get_last_socket_error());
 		return retval;
 	}
 
@@ -1382,13 +1368,14 @@ int xio_ucx_single_sock_connect(struct xio_ucx_transport *ucx_hndl,
  * @return
  */
 static int xio_ucx_connect(struct xio_transport_base *transport,
-			   const char *portal_uri, const char *out_if_addr)
+			   const char *portal_uri,
+			   const char *out_if_addr)
 {
-	struct xio_ucx_transport	*ucx_hndl =
-					(struct xio_ucx_transport *)transport;
-	union xio_sockaddr		rsa;
-	socklen_t			rsa_len = 0;
-	int				retval = 0;
+	struct xio_ucx_transport *ucx_hndl =
+			(struct xio_ucx_transport *)transport;
+	union xio_sockaddr rsa;
+	socklen_t rsa_len = 0;
+	int retval = 0;
 
 	/* resolve the portal_uri */
 	rsa_len = xio_uri_to_ss(portal_uri, &rsa.sa_stor);
@@ -1407,66 +1394,73 @@ static int xio_ucx_connect(struct xio_transport_base *transport,
 	ucx_hndl->base.is_client = 1;
 
 	if (out_if_addr) {
-		union xio_sockaddr	if_sa;
-		int			sa_len;
+		union xio_sockaddr if_sa;
+		int sa_len;
 
 		sa_len = xio_host_port_to_ss(out_if_addr, &if_sa.sa_stor);
 		if (sa_len == -1) {
 			xio_set_error(XIO_E_ADDR_ERROR);
 			ERROR_LOG("outgoing interface [%s] resolving failed\n",
-				  out_if_addr);
+					out_if_addr);
 			goto exit;
 		}
 		retval = bind(ucx_hndl->sock.cfd,
-			      (struct sockaddr *)&if_sa.sa_stor,
-			      sa_len);
+				(struct sockaddr *)&if_sa.sa_stor,
+				sa_len);
 		if (retval) {
 			xio_set_error(xio_get_last_socket_error());
 			ERROR_LOG("ucx bind failed. (errno=%d %m)\n",
-				  xio_get_last_socket_error());
+					xio_get_last_socket_error());
 			goto exit;
 		}
 	}
 
 	/* connect */
 	retval = ucx_hndl->sock.ops->connect(ucx_hndl,
-					     (struct sockaddr *)&rsa.sa_stor,
-					     rsa_len);
+						(struct sockaddr *)&rsa.sa_stor,
+						rsa_len);
 	if (retval)
 		goto exit;
 
 	return 0;
 
-exit:
-	ufree(ucx_hndl->base.portal_uri);
-exit1:
-	ucx_hndl->sock.ops->del_ev_handlers = NULL;
+	exit: ufree(ucx_hndl->base.portal_uri);
+	exit1: ucx_hndl->sock.ops->del_ev_handlers = NULL;
 	return -1;
 }
 
-static int xio_ucx_transport_open(struct xio_ucx_transport *ucx_hndl) {
-	ucs_status_t		status;
-	struct xio_ucp_worker	*worker;
+static void xio_ucx_request_init_cb(void *req)
+{
+	struct xio_ucp_callback_data *data = (struct xio_ucp_callback_data *)req;
+	data->completed = 0;
+	data->transport = NULL;
+}
+
+static int xio_ucx_transport_open(struct xio_ucx_transport *ucx_hndl)
+{
+	ucs_status_t status;
+	struct xio_ucp_worker *worker;
 
 	/* UCP temporary vars */
-	ucp_params_t		ucp_params;
-	ucp_config_t		*config;
+	ucp_params_t ucp_params;
+	ucp_config_t *config;
 
 	if (ucx_hndl->base.ctx->trans_data)
 		return 0;
-	ucx_hndl->base.ctx->trans_data = ucalloc(1, sizeof(struct xio_ucp_worker));
-	worker = (struct xio_ucp_worker*) ucx_hndl->base.ctx->trans_data;
+	ucx_hndl->base.ctx->trans_data = ucalloc(
+			1, sizeof(struct xio_ucp_worker));
+	worker = (struct xio_ucp_worker*)ucx_hndl->base.ctx->trans_data;
 
 	/* UCP initialization */
 	status = ucp_config_read(NULL, NULL, &config);
 	if (status != UCS_OK) {
-		ERROR_LOG("failed reading ucp config %d\n",status);
+		ERROR_LOG("failed reading ucp config %d\n", status);
 		return 1;
 	}
 
-	ucp_params.features = UCP_FEATURE_TAG;
-	ucp_params.request_size = sizeof(struct xio_ucx_transport);
-	ucp_params.request_init = NULL;
+	ucp_params.features = UCP_FEATURE_TAG | UCP_FEATURE_WAKEUP;
+	ucp_params.request_size = sizeof(struct xio_ucp_callback_data);
+	ucp_params.request_init = xio_ucx_request_init_cb;
 	ucp_params.request_cleanup = NULL;
 	status = ucp_init(&ucp_params, config, &ucp_context);
 
@@ -1474,11 +1468,11 @@ static int xio_ucx_transport_open(struct xio_ucx_transport *ucx_hndl) {
 
 	ucp_config_release(config);
 	if (status != UCS_OK) {
-		ERROR_LOG("failed reading ucp config %d\n",status);
+		ERROR_LOG("failed reading ucp config %d\n", status);
 		return 1;
 	}
 	status = ucp_worker_create(ucp_context, UCS_THREAD_MODE_SINGLE,
-			&(worker->worker));
+					&(worker->worker));
 	if (status != UCS_OK) {
 		goto err_cleanup;
 	}
@@ -1492,9 +1486,8 @@ static int xio_ucx_transport_open(struct xio_ucx_transport *ucx_hndl) {
 
 	return 0;
 
-
 	err_worker:
-	ucp_worker_release_address(worker->worker,worker->addr);
+	ucp_worker_release_address(worker->worker, worker->addr);
 	ucp_worker_destroy(worker->worker);
 	ufree(worker);
 	err_cleanup:
