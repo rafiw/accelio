@@ -416,7 +416,7 @@ static struct xio_device *xio_device_init(struct ib_device *ib_dev, int port)
 		ERROR_LOG("not supported");
 #endif
 
-	if (dev->device_attr.device_cap_flags & IB_DEVICE_MEM_MGT_EXTENSIONS) {
+	if (0) {
 		if (xio_fast_reg_init(XIO_FAST_MEM_FRWR, &dev->fastreg))
 			goto cleanup1;
 	} else {
