@@ -178,10 +178,15 @@ static int on_msg_error(struct xio_session *session,
 			struct xio_msg  *msg,
 			void *cb_user_context)
 {
-	pr_info("**** [%p] message [%lu] failed. reason: %s\n",
-		session, (unsigned long)msg->request->sn, xio_strerror(error));
-	msg_pool_put(test_params.pool, msg);
-
+	if (msg && msg->request) {
+		pr_info("**** [%p] message [%lu] failed. reason: %s\n",
+				session, (unsigned long)msg->request->sn,
+				xio_strerror(error));
+		msg_pool_put(test_params.pool, msg);
+	} else {
+		pr_info("**** [%p] message failed. reason: %s\n",
+			session, xio_strerror(error));
+	}
 	return 0;
 }
 
