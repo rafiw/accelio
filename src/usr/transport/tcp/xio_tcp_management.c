@@ -2479,30 +2479,48 @@ static int xio_tcp_is_valid_in_req(struct xio_msg *msg)
 	if ((nents > (unsigned long)tcp_options.max_in_iovsz) ||
 	    (nents > max_nents) ||
 	    (max_nents > (unsigned long)tcp_options.max_in_iovsz)) {
+		ERROR_LOG("sgl exceeded allowed size (nents=%u, "
+			  "max_nents=%u, max_out_iovsz=%zd)\n",
+			  nents, max_nents, tcp_options.max_out_iovsz);
 		return 0;
 	}
 
-	if (vmsg->sgl_type == XIO_SGL_TYPE_IOV && nents > XIO_IOVLEN)
+	if (vmsg->sgl_type == XIO_SGL_TYPE_IOV && nents > XIO_IOVLEN) {
+		ERROR_LOG("sgl (iovec) too big (nents=%zu, max=%zu)\n",
+			  XIO_IOVLEN);
 		return 0;
+	}
 
-	if (vmsg->header.iov_base &&
-	    (vmsg->header.iov_len == 0))
+	if (vmsg->header.iov_base && (vmsg->header.iov_len == 0)) {
+		ERROR_LOG("Header ptr is NULL (vmsg=%p)\n", vmsg);
 		return 0;
+	}
+
+	if (vmsg->header.iov_len > (size_t)g_options.max_inline_xio_hdr) {
+		ERROR_LOG("Header length exceeds max (len=%zd, max=%zd)\n",
+			  vmsg->header.iov_len, g_options.max_inline_xio_hdr);
+		return 0;
+	}
 
 	for_each_sge(sgtbl, sgtbl_ops, sge, i) {
 		if (sge_mr(sgtbl_ops, sge))
 			mr_found++;
 		if (!sge_addr(sgtbl_ops, sge)) {
-			if (sge_mr(sgtbl_ops, sge))
+			if (sge_mr(sgtbl_ops, sge)) {
+				ERROR_LOG("sg %d addr is NULL but has mr\n", i);
 				return 0;
+			}
 		} else {
-			if (sge_length(sgtbl_ops, sge)  == 0)
+			if (sge_length(sgtbl_ops, sge) == 0)
+				ERROR_LOG("sge %d size is 0\n", i);
 				return 0;
 		}
 	}
-	if (tcp_options.enable_mr_check &&
-	    (mr_found != nents) && mr_found)
+	if (tcp_options.enable_mr_check && (mr_found != nents) && mr_found) {
+		ERROR_LOG("not all entries has mr (mr_found=%d, nents=%zu)\n",
+			  mr_found, nents);
 		return 0;
+	}
 
 	return 1;
 }
@@ -2528,32 +2546,46 @@ static int xio_tcp_is_valid_out_msg(struct xio_msg *msg)
 
 	if ((nents > (unsigned long)tcp_options.max_out_iovsz) ||
 	    (nents > max_nents) ||
-	    (max_nents > (unsigned long)tcp_options.max_out_iovsz))
+	    (max_nents > (unsigned long)tcp_options.max_out_iovsz)) {
+		ERROR_LOG("sgl exceeded allowed size (nents=%u, "
+			  "max_nents=%u, max_out_iovsz=%zd)\n",
+			  nents, max_nents, tcp_options.max_out_iovsz);
 		return 0;
+	}
 
-	if (vmsg->sgl_type == XIO_SGL_TYPE_IOV && nents > XIO_IOVLEN)
+	if (vmsg->sgl_type == XIO_SGL_TYPE_IOV && nents > XIO_IOVLEN) {
+		ERROR_LOG("sgl (iovec) too big (nents=%zu, max=%zu)\n",
+			  XIO_IOVLEN);
 		return 0;
+	}
 
-	if ((vmsg->header.iov_base  &&
-	     (vmsg->header.iov_len == 0)) ||
-	    (!vmsg->header.iov_base  &&
-	     (vmsg->header.iov_len != 0)))
-			return 0;
-
-	if (vmsg->header.iov_len > (size_t)g_options.max_inline_xio_hdr)
+	if ((vmsg->header.iov_base && vmsg->header.iov_len == 0) ||
+	    (!vmsg->header.iov_base && vmsg->header.iov_len != 0)) {
+		ERROR_LOG("Header ptr is NULL (vmsg=%p)\n", vmsg);
 		return 0;
+	}
+
+	if (vmsg->header.iov_len > (size_t)g_options.max_inline_xio_hdr) {
+		ERROR_LOG("Header length exceeds max (len=%zd, max=%zd)\n",
+			  vmsg->header.iov_len, g_options.max_inline_xio_hdr);
+		return 0;
+	}
 
 	for_each_sge(sgtbl, sgtbl_ops, sge, i) {
 		if (sge_mr(sgtbl_ops, sge))
 			mr_found++;
 		if (!sge_addr(sgtbl_ops, sge) ||
-		    (sge_length(sgtbl_ops, sge) == 0))
+		    (sge_length(sgtbl_ops, sge) == 0)) {
+			ERROR_LOG("sge %d is not NULL but has 0 length\n", i);
 			return 0;
+		}
 	}
 
-	if (tcp_options.enable_mr_check &&
-	    (mr_found != nents) && mr_found)
+	if (tcp_options.enable_mr_check && (mr_found != nents) && mr_found) {
+		ERROR_LOG("not all entries has mr (mr_found=%d, nents=%zu)\n",
+			  mr_found, nents);
 		return 0;
+	}
 
 	return 1;
 }
