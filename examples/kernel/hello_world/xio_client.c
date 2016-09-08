@@ -236,16 +236,22 @@ static int xio_client_main(void *data)
 	struct xio_context	*ctx;
 	struct session_data	*session_data;
 	int			i = 0;
-	unsigned long		data_len = 0, size = 0;
 	char			*buf = NULL;
-	const char		*hdr = "hello world iovec request";
+	const char		*hdr = "hello world header request";
 	const char		*msg = "hello world iovec request";
+	unsigned long		data_len = strlen(msg) + 1, size = 0;
+
+	/* check, convert and assign data_len */
+	if (argv[3]) {
+		if (kstrtoul(argv[3], 0, &data_len) < 0) {
+			pr_err("bad data_len parameter\n");
+			return -1;
+		}
+	}
 
 	atomic_add(2, &module_state);
-
 	session_data = vzalloc(sizeof(*session_data));
 	if (!session_data) {
-		/*pr_err("session_data alloc failed\n");*/
 		return 0;
 	}
 
@@ -283,11 +289,7 @@ static int xio_client_main(void *data)
 	session_data->session = session;
 	session_data->connection = xio_connect(&cparams);
 
-	/* create "hello world" message */
-
-	if (argv[3] != NULL && kstrtoul(argv[3], 0, &data_len)) { /* check, convert and assign data_len */
-		data_len = strlen(msg);
-	}
+	pr_info("allocating xio memory...\n");
 	for (i = 0; i < QUEUE_DEPTH; i++) {
 		struct xio_vmsg *omsg, *imsg;
 
@@ -307,9 +309,8 @@ static int xio_client_main(void *data)
 			buf = kstrndup(msg, data_len, GFP_KERNEL);
 			size = strlen((const char *) buf) + 1;
 		} else {
-			pr_info("allocating xio memory...\n");
-			buf = kmalloc(data_len, GFP_KERNEL);
-			memcpy(buf, "hello world iovec request", 26);
+			buf = vzalloc(data_len);
+			memcpy(buf, msg, strlen(msg));
 			size  = data_len;
 		}
 		sg_init_one(omsg->data_tbl.sgl, buf, size);
@@ -334,11 +335,9 @@ static int xio_client_main(void *data)
 
 	/* normal exit phase */
 	pr_info("exit signaled\n");
-
 	/* free the message */
 	for (i = 0; i < QUEUE_DEPTH; i++) {
 		kfree(session_data->req[i].out.header.iov_base);
-		/* Currently need to release only one entry */
 		kfree(sg_virt(session_data->req[i].out.data_tbl.sgl));
 		sg_free_table(&session_data->req[i].out.data_tbl);
 		xio_fini_vmsg(&session_data->req[i].out);

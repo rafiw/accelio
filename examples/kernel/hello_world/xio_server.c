@@ -64,7 +64,7 @@ module_param_named(port, xio_argv[2], charp, 0);
 MODULE_PARM_DESC(port, "Port to receive request from");
 
 module_param_named(data_len, xio_argv[3], charp, 0);
-MODULE_PARM_DESC(data_len, "Msg data len of the response default 20");
+MODULE_PARM_DESC(data_len, "Msg data len of the response default 22");
 
 module_param_named(transport, xio_argv[4], charp, 0);
 MODULE_PARM_DESC(transport, "Transport protocol to send responses with");
@@ -262,14 +262,21 @@ static int xio_server_main(void *data)
 	int			i;
 	struct xio_vmsg 	*omsg;
 	void 			*buf = NULL;
-	unsigned long		data_len = 0, size;
 	const char		*hdr = "hello world header rsp";
 	const char		*msg = "hello world iovec rsp";
-	atomic_add(2, &module_state);
+	unsigned long		data_len = strlen(msg) + 1, size;
 
+	/* check, convert and assign data_len */
+	if (argv[3]) {
+		if (kstrtoul(argv[3], 0, &data_len) < 0) {
+			pr_err("bad data_len parameter\n");
+			return -1;
+		}
+	}
+
+	atomic_add(2, &module_state);
 	server_data = vzalloc(sizeof(*server_data));
 	if (!server_data) {
-		/*pr_err("server_data alloc failed\n");*/
 		return 0;
 	}
 
@@ -286,10 +293,7 @@ static int xio_server_main(void *data)
 	}
 	server_data->ctx = ctx;
 
-	/* create "hello world" message */
-	if (argv[3] != NULL && kstrtoul(argv[3], 0, &data_len)) { /* check, convert and assign data_len */
-		data_len = 0;
-	}
+	pr_info("allocating xio memory...\n");
 	for (i = 0; i < QUEUE_DEPTH; i++) {
 		xio_reinit_msg(&server_data->rsp[i]);
 		omsg = &server_data->rsp[i].out;
@@ -306,9 +310,8 @@ static int xio_server_main(void *data)
 			buf = kstrndup(msg, data_len, GFP_KERNEL);
 			size = strlen((const char *) buf) + 1;
 		} else { /* big msgs */
-			pr_info("allocating xio memory...\n");
-			buf = kmalloc(data_len, GFP_KERNEL);
-			memcpy(buf, "hello world iovec rsp", 22);
+			buf = vzalloc(data_len);
+			memcpy(buf, msg, strlen(msg));
 			size = data_len;
 		}
 		sg_init_one(omsg->data_tbl.sgl, buf, size);
