@@ -68,6 +68,35 @@ struct xio_reg_mem {
 	void		*priv;		/**< xio private data		     */
 };
 
+/**
+ * @enum xio_mem_alloc_flag
+ * @brief This enum contains different methods of allocation supported by XIO.
+ *        This enum is used for allocating new memory with @ref xio_mem_alloc_ex
+ * @note If you are defining an allocator using @ref xio_set_mem_allocator
+ *       the allocator function will be used.
+ */
+enum xio_mem_alloc_flag {
+	XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC	= 0,
+	XIO_MEM_ALLOC_FLAG_HUGE_PAGES_ALLOC	= 1,
+	XIO_MEM_ALLOC_FLAG_NUMA_ALLOC		= 2
+};
+
+/**
+ * @struct xio_reg_mem_opt
+ * @brief struct to pass to @ref xio_mem_alloc_ex to decide whether
+ *        to register the memory or not.
+ *        When using transports not relying on memory registration,
+ *        prefer using the new API to prevent memory registration,
+ *        save time and CPU.
+ */
+struct xio_mem_alloc_params {
+	enum xio_mem_alloc_flag	alloc_method;
+	union {
+		int		numa_id; /* when XIO_MEM_ALLOC_FLAG_NUMA_ALLOC*/
+	};
+	int			register_mem;
+};
+
 /*---------------------------------------------------------------------------*/
 /* message data type							     */
 /*---------------------------------------------------------------------------*/
@@ -483,11 +512,26 @@ uint32_t xio_lookup_rkey_by_response(const struct xio_reg_mem *reg_mem,
  *
  * @return 0 on success, or -1 on error.  If an error occurs, call
  *	    xio_errno function to get the failure reason.
+ * @deprecated use @ref xio_mem_alloc_ex
  */
 int xio_mem_alloc(size_t length, struct xio_reg_mem *reg_mem);
 
 /**
- * free registered memory region, create by @ref xio_mem_alloc
+ * allocate and register memory
+ *
+ * @param[in] length	length of required buffer memory.
+ * @param[out] reg_mem	registered memory data structure
+ * @param[in] opt	options that determine if the memory will be registered.
+ *
+ * @return 0 on success, or -1 on error.  If an error occurs, call
+ *	    xio_errno function to get the failure reason.
+ */
+int xio_mem_alloc_ex(size_t length, struct xio_reg_mem *reg_mem,
+		     struct xio_mem_alloc_params *opt);
+
+/**
+ * free registered memory region, create by @ref xio_mem_alloc or
+ * @ref xio_mem_alloc_ex
  *
  * @param[in,out] reg_mem - previously registered memory data structure.
  *

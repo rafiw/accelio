@@ -57,6 +57,93 @@ int			  allocator_assigned	= 0;
 struct xio_mem_allocator  g_mem_allocator;
 struct xio_mem_allocator *mem_allocator = &g_mem_allocator;
 
+/*---------------------------------------------------------------------------*/
+/* xio_mem_register_no_dev						     */
+/*---------------------------------------------------------------------------*/
+static inline int xio_mem_register_no_dev(void *addr, size_t length,
+					  struct xio_reg_mem *reg_mem)
+{
+	struct xio_mr *dummy_mr = (struct xio_mr *)
+					ucalloc(1, sizeof(struct xio_mr));
+
+	if (dummy_mr == NULL) {
+		ERROR_LOG("calloc failed. sz:%zu\n", sizeof(struct xio_mr));
+		xio_set_error(ENOMEM);
+		return -1;
+	}
+	dummy_mr->addr_alloced = 1;
+	reg_mem->addr = addr;
+	reg_mem->length = length;
+	reg_mem->mr = dummy_mr;
+
+	return 0;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_alloc_helper							     */
+/*---------------------------------------------------------------------------*/
+static inline void *xio_mem_alloc_helper(struct xio_reg_mem *reg_mem,
+					 size_t length)
+{
+	struct xio_priv_alloc_info *info =
+			(struct xio_priv_alloc_info *)reg_mem->priv;
+
+	switch (info->alloc_method) {
+	case XIO_MEM_ALLOC_FLAG_HUGE_PAGES_ALLOC:
+		return umalloc_huge_pages(length);
+	case XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC:
+		return umemalign(page_size, length);
+	case XIO_MEM_ALLOC_FLAG_NUMA_ALLOC:
+		return unuma_alloc(length, info->numa_id);
+	default:
+		ERROR_LOG("Unknown allocation method got %d\n",
+			  info->alloc_method);
+		return NULL;
+	}
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_alloc_no_dev							     */
+/*---------------------------------------------------------------------------*/
+static int xio_mem_alloc_no_dev(size_t length, struct xio_reg_mem *reg_mem)
+{
+	size_t			real_size;
+	int			retval;
+
+	real_size = ALIGN(length, page_size);
+	reg_mem->addr = xio_mem_alloc_helper(reg_mem, real_size);
+	if (!reg_mem->addr) {
+		ERROR_LOG("xio_memalign failed. sz:%zu\n", real_size);
+		goto cleanup;
+	}
+
+	retval = xio_mem_register_no_dev(reg_mem->addr, length, reg_mem);
+	if (retval) {
+		ERROR_LOG("xio_reg_mr failed. addr:%p, length:%d access %d\n",
+			  reg_mem->addr, length, reg_mem->mr->access);
+		goto cleanup1;
+	}
+
+	reg_mem->length = length;
+
+	return 0;
+
+cleanup1:
+	xio_mem_free(reg_mem);
+cleanup:
+	return -1;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_dereg_no_dev							     */
+/*---------------------------------------------------------------------------*/
+static inline int xio_mem_dereg_no_dev(struct xio_reg_mem *reg_mem)
+{
+	ufree(reg_mem->mr);
+	reg_mem->mr = NULL;
+	return 0;
+}
+
 #ifdef HAVE_INFINIBAND_VERBS_H
 
 /*---------------------------------------------------------------------------*/
@@ -80,80 +167,6 @@ static int xio_register_reg_mem_transports(void)
 	}
 
 	return init_transport;
-}
-
-/*---------------------------------------------------------------------------*/
-/* xio_mem_register_no_dev						     */
-/*---------------------------------------------------------------------------*/
-static inline int xio_mem_register_no_dev(void *addr, size_t length,
-					  struct xio_reg_mem *reg_mem)
-{
-	static struct xio_mr dummy_mr;
-
-	reg_mem->addr = addr;
-	reg_mem->length = length;
-	reg_mem->mr = &dummy_mr;
-
-	return 0;
-}
-
-/*---------------------------------------------------------------------------*/
-/* xio_mem_dereg_no_dev							     */
-/*---------------------------------------------------------------------------*/
-static inline int xio_mem_dereg_no_dev(struct xio_reg_mem *reg_mem)
-{
-	reg_mem->mr = NULL;
-	return 0;
-}
-
-/*---------------------------------------------------------------------------*/
-/* xio_mem_free_no_dev							     */
-/*---------------------------------------------------------------------------*/
-static int xio_mem_free_no_dev(struct xio_reg_mem *reg_mem)
-{
-	int retval = 0;
-
-	if (reg_mem->addr)
-		ufree(reg_mem->addr);
-
-	retval = xio_mem_dereg_no_dev(reg_mem);
-
-	return retval;
-}
-
-/*---------------------------------------------------------------------------*/
-/* xio_mem_alloc_no_dev							     */
-/*---------------------------------------------------------------------------*/
-static int xio_mem_alloc_no_dev(size_t length, struct xio_reg_mem *reg_mem)
-{
-	size_t			real_size;
-	int			alloced = 0;
-
-	real_size = ALIGN(length, page_size);
-	reg_mem->addr = umemalign(page_size, real_size);
-	if (!reg_mem->addr) {
-		ERROR_LOG("xio_memalign failed. sz:%zu\n", real_size);
-		goto cleanup;
-	}
-	/*memset(reg_mem->addr, 0, real_size);*/
-	alloced = 1;
-
-	xio_mem_register_no_dev(reg_mem->addr, length, reg_mem);
-	if (!reg_mem->mr) {
-		ERROR_LOG("xio_reg_mr failed. addr:%p, length:%d access %d\n",
-			  reg_mem->addr, length, reg_mem->mr->access);
-
-		goto cleanup1;
-	}
-	reg_mem->length = length;
-
-	return 0;
-
-cleanup1:
-	if (alloced)
-		ufree(reg_mem->addr);
-cleanup:
-	return -1;
 }
 
 /*---------------------------------------------------------------------------*/
@@ -207,16 +220,91 @@ int xio_mem_dereg(struct xio_reg_mem *reg_mem)
 /*---------------------------------------------------------------------------*/
 int xio_mem_alloc(size_t length, struct xio_reg_mem *reg_mem)
 {
-	struct xio_device	*dev;
-	size_t			real_size;
-	uint64_t		access;
+	struct xio_mem_alloc_params alloc_params = {
+		.alloc_method = XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC,
+		.numa_id = 0,
+		.register_mem = 1
+
+	};
+	return xio_mem_alloc_ex(length, reg_mem, &alloc_params);
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_free								     */
+/*---------------------------------------------------------------------------*/
+int xio_mem_free(struct xio_reg_mem *reg_mem)
+{
+	int				retval;
+	struct xio_priv_alloc_info	*info =
+			(struct xio_priv_alloc_info *)reg_mem->priv;
+
+	if (!reg_mem->mr) {
+		xio_set_error(EINVAL);
+		return -1;
+	}
+	if (reg_mem->mr->addr_alloced) {
+		switch (info->alloc_method) {
+		case XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC:
+			ufree(reg_mem->addr);
+			break;
+		case XIO_MEM_ALLOC_FLAG_HUGE_PAGES_ALLOC:
+			ufree_huge_pages(reg_mem->addr);
+			break;
+		case XIO_MEM_ALLOC_FLAG_NUMA_ALLOC:
+			unuma_free(reg_mem->addr);
+			break;
+		default:
+			ERROR_LOG("Unknown allocation method %d\n",
+				  info->alloc_method);
+			return 1;
+		}
+		reg_mem->addr = NULL;
+		reg_mem->mr->addr_alloced = 0;
+	}
+	ufree(reg_mem->priv);
+
+	/* reg_mem->mr->length is zero means dummy_mr was used */
+	if (list_empty(&dev_list) || reg_mem->mr->length == 0)
+		return xio_mem_dereg_no_dev(reg_mem);
+	retval = xio_dereg_mr(reg_mem->mr);
+	reg_mem->mr = NULL;
+	return retval;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_alloc_ex							     */
+/*---------------------------------------------------------------------------*/
+inline int xio_mem_alloc_ex(size_t length, struct xio_reg_mem *reg_mem,
+			    struct xio_mem_alloc_params *opt)
+{
+	struct xio_device		*dev;
+	size_t				real_size;
+	uint64_t			access;
+	struct xio_priv_alloc_info	*alloc_info;
 
 	if (length == 0 || !reg_mem) {
 		xio_set_error(EINVAL);
 		ERROR_LOG("xio_mem_alloc failed. length:%zu\n", length);
 		return -1;
 	}
+
+	alloc_info = (struct xio_priv_alloc_info *)
+			ucalloc(1, sizeof(struct xio_priv_alloc_info));
+	if (unlikely(!alloc_info)) {
+		xio_set_error(ENOMEM);
+		ERROR_LOG("Allocating priv reg info failed\n");
+		return -1;
+	}
+
+	alloc_info->alloc_method = opt->alloc_method;
+	alloc_info->numa_id = opt->numa_id;
+	reg_mem->priv = alloc_info;
+
+	if (opt->register_mem == 0) {
+		return xio_mem_alloc_no_dev(length, reg_mem);
+	}
 	if (list_empty(&dev_list)) {
+		/* xio_register_reg_mem_transports changes dev_list */
 		if (!xio_register_reg_mem_transports() && list_empty(&dev_list))
 			return xio_mem_alloc_no_dev(length, reg_mem);
 	}
@@ -241,11 +329,11 @@ int xio_mem_alloc(size_t length, struct xio_reg_mem *reg_mem)
 	}
 
 	real_size = ALIGN(length, page_size);
-	reg_mem->addr = umemalign(page_size, real_size);
+	reg_mem->addr = xio_mem_alloc_helper(reg_mem, real_size);
 	if (unlikely(!reg_mem->addr)) {
 		xio_set_error(ENOMEM);
 		ERROR_LOG("memalign failed. sz:%zu\n", real_size);
-		goto cleanup;
+		goto cleanup1;
 	}
 	reg_mem->mr = xio_reg_mr_ex(&reg_mem->addr, length, access);
 	if (unlikely(!reg_mem->mr)) {
@@ -253,7 +341,7 @@ int xio_mem_alloc(size_t length, struct xio_reg_mem *reg_mem)
 			  "addr:%p, length:%d, access:0x%x\n",
 			   reg_mem->addr, length, access);
 
-		goto cleanup1;
+		goto cleanup;
 	}
 	/*memset(reg_mem->addr, 0, length);*/
 	reg_mem->length			= length;
@@ -262,37 +350,11 @@ int xio_mem_alloc(size_t length, struct xio_reg_mem *reg_mem)
 exit:
 	return 0;
 
-cleanup1:
-	ufree(reg_mem->addr);
 cleanup:
+	ufree(reg_mem->addr);
+cleanup1:
+	ufree(reg_mem->priv);
 	return -1;
-}
-
-/*---------------------------------------------------------------------------*/
-/* xio_mem_free								     */
-/*---------------------------------------------------------------------------*/
-int xio_mem_free(struct xio_reg_mem *reg_mem)
-{
-	int retval;
-
-	if (!reg_mem->mr) {
-		xio_set_error(EINVAL);
-		return -1;
-	}
-	if (list_empty(&dev_list))
-		return xio_mem_free_no_dev(reg_mem);
-
-	if (reg_mem->mr->addr_alloced) {
-		ufree(reg_mem->addr);
-		reg_mem->addr = NULL;
-		reg_mem->mr->addr_alloced = 0;
-	}
-
-	retval = xio_dereg_mr(reg_mem->mr);
-
-	reg_mem->mr = NULL;
-
-	return retval;
 }
 
 #else
@@ -301,18 +363,7 @@ int xio_mem_free(struct xio_reg_mem *reg_mem)
 /*---------------------------------------------------------------------------*/
 int xio_mem_register(void *addr, size_t length, struct xio_reg_mem *reg_mem)
 {
-	static struct xio_mr dummy_mr;
-
-	if (!addr || !reg_mem) {
-		xio_set_error(EINVAL);
-		return -1;
-	}
-
-	reg_mem->addr = addr;
-	reg_mem->length = length;
-	reg_mem->mr = &dummy_mr;
-
-	return 0;
+	return xio_mem_register_no_dev(addr, length, reg_mem);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -320,8 +371,36 @@ int xio_mem_register(void *addr, size_t length, struct xio_reg_mem *reg_mem)
 /*---------------------------------------------------------------------------*/
 int xio_mem_dereg(struct xio_reg_mem *reg_mem)
 {
-	reg_mem->mr = NULL;
-	return 0;
+	return xio_mem_dereg_no_dev(reg_mem);
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_alloc_ex							     */
+/*---------------------------------------------------------------------------*/
+inline int xio_mem_alloc_ex(size_t length, struct xio_reg_mem *reg_mem,
+			    struct xio_mem_alloc_params *opt)
+{
+	struct xio_priv_alloc_info	*alloc_info;
+
+	if (length == 0 || !reg_mem) {
+		xio_set_error(EINVAL);
+		ERROR_LOG("xio_mem_alloc failed. length:%zu\n", length);
+		return -1;
+	}
+
+	alloc_info = (struct xio_priv_alloc_info *)
+			ucalloc(1, sizeof(struct xio_priv_alloc_info));
+	if (unlikely(!alloc_info)) {
+		xio_set_error(ENOMEM);
+		ERROR_LOG("Allocating priv reg info failed\n");
+		return -1;
+	}
+
+	alloc_info->alloc_method = opt->alloc_method;
+	alloc_info->numa_id = opt->numa_id;
+	reg_mem->priv = alloc_info;
+
+	return xio_mem_alloc_no_dev(length, reg_mem);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -329,34 +408,13 @@ int xio_mem_dereg(struct xio_reg_mem *reg_mem)
 /*---------------------------------------------------------------------------*/
 int xio_mem_alloc(size_t length, struct xio_reg_mem *reg_mem)
 {
-	size_t			real_size;
-	int			alloced = 0;
+	struct xio_mem_alloc_params alloc_params = {
+		.alloc_method = XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC,
+		.numa_id = 0,
+		.register_mem = 0
+	};
 
-	real_size = ALIGN(length, page_size);
-	reg_mem->addr = umemalign(page_size, real_size);
-	if (!reg_mem->addr) {
-		ERROR_LOG("xio_memalign failed. sz:%zu\n", real_size);
-		goto cleanup;
-	}
-	/*memset(reg_mem->addr, 0, real_size);*/
-	alloced = 1;
-
-	xio_mem_register(reg_mem->addr, length, reg_mem);
-	if (!reg_mem->mr) {
-		ERROR_LOG("xio_reg_mr failed. addr:%p, length:%d\n",
-			  reg_mem->addr, length, access);
-
-		goto cleanup1;
-	}
-	reg_mem->length = length;
-
-	return 0;
-
-cleanup1:
-	if (alloced)
-		ufree(reg_mem->addr);
-cleanup:
-	return -1;
+	return xio_mem_alloc_ex(length, reg_mem, &alloc_params);
 }
 
 /*---------------------------------------------------------------------------*/

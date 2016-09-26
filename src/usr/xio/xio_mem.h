@@ -59,6 +59,17 @@ struct xio_mr {
 	struct list_head	mr_list_entry;
 };
 
+/**
+ * struct to save under xio_reg_mem prov that caontain data about
+ * allocation method
+ * @note no used for know
+ */
+struct xio_priv_alloc_info {
+	enum xio_mem_alloc_flag	alloc_method;
+	int			numa_id;
+	void			*priv; /* reserved */
+};
+
 static inline void xio_disable_huge_pages(int disable)
 {
 	if (disable_huge_pages)
