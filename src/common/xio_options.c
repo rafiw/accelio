@@ -83,8 +83,16 @@ struct xio_options			g_options = {
 	{
 		XIO_OPTVAL_DEF_KEEPALIVE_PROBES,
 		XIO_OPTVAL_DEF_KEEPALIVE_TIME,
-		XIO_OPTVAL_DEF_KEEPALIVE_INTVL
-	}
+		XIO_OPTVAL_DEF_KEEPALIVE_INTVL,
+	},
+	XIO_OPTVAL_DEF_PAD,
+	{					/* mem_alloc_params */
+		XIO_MEM_ALLOC_FLAG_HUGE_PAGES_ALLOC,
+		{
+			0,
+		},
+		0,
+	},
 };
 
 /*---------------------------------------------------------------------------*/
@@ -287,6 +295,14 @@ static int xio_general_set_opt(void *xio_obj, int optname,
 		if (*((int *)optval) < 0)
 			break;
 		g_options.transport_close_timeout = *((int *)optval);
+		return 0;
+	case XIO_OPTNAME_POOL_ALLOC_METHOD:
+		if (optlen != sizeof(g_options.mem_alloc_params)) {
+			xio_set_error(EINVAL);
+			return -1;
+		}
+		memcpy(&g_options.mem_alloc_params, optval,
+		       sizeof(g_options.mem_alloc_params));
 		return 0;
 	default:
 		break;

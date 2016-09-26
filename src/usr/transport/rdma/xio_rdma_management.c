@@ -1312,11 +1312,18 @@ static int xio_rdma_initial_pool_slab_pre_create(
 		(struct xio_rdma_tasks_slab *)slab_dd_data;
 	uint32_t pool_size;
 	int	retval;
+	struct xio_mem_alloc_params params = {
+		.alloc_method = disable_huge_pages ?
+				XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC :
+				g_options.mem_alloc_params.alloc_method,
+		.numa_id = g_options.mem_alloc_params.numa_id,
+		.register_mem = 1,
+	};
 
 	rdma_slab->buf_size = CONN_SETUP_BUF_SIZE;
 	pool_size = rdma_slab->buf_size * alloc_nr;
 
-	retval = xio_mem_alloc(pool_size, &rdma_slab->reg_mem);
+	retval = xio_mem_alloc_ex(pool_size, &rdma_slab->reg_mem, &params);
 	if (retval) {
 		ERROR_LOG("xio_mem_alloc conn_setup pool failed, %m\n");
 		if (errno == ENOMEM)
@@ -1469,7 +1476,7 @@ static int xio_rdma_task_pre_put(
 /*---------------------------------------------------------------------------*/
 /* xio_rdma_initial_pool_slab_destroy					     */
 /*---------------------------------------------------------------------------*/
-static int xio_rdma_initial_pool_slab_destroy(
+static int xio_rdma_pool_slab_destroy(
 		struct xio_transport_base *transport_hndl,
 		void *pool_dd_data, void *slab_dd_data)
 {
@@ -1547,7 +1554,7 @@ static void xio_rdma_initial_pool_get_params(
 static struct xio_tasks_pool_ops initial_tasks_pool_ops = {
 	.pool_get_params	= xio_rdma_initial_pool_get_params,
 	.slab_pre_create	= xio_rdma_initial_pool_slab_pre_create,
-	.slab_destroy		= xio_rdma_initial_pool_slab_destroy,
+	.slab_destroy		= xio_rdma_pool_slab_destroy,
 	.slab_init_task		= xio_rdma_initial_pool_slab_init_task,
 	.pool_post_create	= xio_rdma_initial_pool_post_create
 };
@@ -1653,7 +1660,14 @@ static int xio_rdma_primary_pool_slab_pre_create(
 		(struct xio_rdma_tasks_slab *)slab_dd_data;
 	size_t inline_buf_sz = xio_rdma_get_inline_buffer_size();
 	size_t alloc_sz = alloc_nr * ALIGN(inline_buf_sz, PAGE_SIZE);
-	int	retval;
+	int retval;
+	struct xio_mem_alloc_params params = {
+		.alloc_method = disable_huge_pages ?
+				XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC :
+				g_options.mem_alloc_params.alloc_method,
+		.numa_id = g_options.mem_alloc_params.numa_id,
+		.register_mem = 1,
+	};
 
 	if (alloc_sz == 0) {
 		xio_set_error(EINVAL);
@@ -1665,35 +1679,11 @@ static int xio_rdma_primary_pool_slab_pre_create(
 	rdma_slab->alloc_nr = alloc_nr;
 	rdma_slab->buf_size = inline_buf_sz;
 
-	if (disable_huge_pages) {
-		retval = xio_mem_alloc(alloc_sz, &rdma_slab->reg_mem);
-		if (retval == -1) {
-			xio_set_error(ENOMEM);
-			ERROR_LOG("xio_alloc rdma pool sz:%zu failed\n",
-				  alloc_sz);
-			return -1;
-		}
-	} else {
-		/* maybe allocation of with unuma_alloc can provide better
-		 * performance?
-		 */
-		rdma_slab->data_pool = umalloc_huge_pages(alloc_sz);
-		if (!rdma_slab->data_pool) {
-			xio_set_error(ENOMEM);
-			ERROR_LOG("malloc rdma pool sz:%zu failed\n",
-				  alloc_sz);
-			return -1;
-		}
-		retval = xio_mem_register(rdma_slab->data_pool,
-					  alloc_sz, &rdma_slab->reg_mem);
-		if (retval == -1) {
-			ERROR_LOG("xio_mem_register rdma pool sz:%zu failed\n",
-				  alloc_sz);
-			ufree_huge_pages(rdma_slab->data_pool);
-			if (errno == ENOMEM)
-				xio_validate_ulimit_memlock();
-			return -1;
-		}
+	retval = xio_mem_alloc_ex(alloc_sz, &rdma_slab->reg_mem, &params);
+	if (retval == -1) {
+		xio_set_error(ENOMEM);
+		ERROR_LOG("xio_alloc rdma pool sz:%zu failed\n", alloc_sz);
+		return -1;
 	}
 	rdma_slab->data_pool	= rdma_slab->reg_mem.addr;
 	rdma_slab->data_mr	= rdma_slab->reg_mem.mr;
@@ -1771,32 +1761,6 @@ static int xio_rdma_primary_pool_post_create(
 
 	/* late creation */
 	xio_rdma_phantom_pool_create(rdma_hndl);
-
-	return 0;
-}
-
-/*---------------------------------------------------------------------------*/
-/* xio_rdma_primary_pool_slab_destroy					     */
-/*---------------------------------------------------------------------------*/
-static int xio_rdma_primary_pool_slab_destroy(
-		struct xio_transport_base *transport_hndl,
-		void *pool_dd_data, void *slab_dd_data)
-{
-	struct xio_rdma_tasks_slab *rdma_slab =
-		(struct xio_rdma_tasks_slab *)slab_dd_data;
-
-	if (disable_huge_pages) {
-		int retval = xio_mem_free(&rdma_slab->reg_mem);
-
-		if (retval != 0)
-			ERROR_LOG("xio_mem_dreg failed\n");
-	} else {
-		int retval = xio_mem_dereg(&rdma_slab->reg_mem);
-
-		if (retval != 0)
-			ERROR_LOG("xio_mem_dreg failed\n");
-		ufree_huge_pages(rdma_slab->data_pool);
-	}
 
 	return 0;
 }
@@ -1939,7 +1903,7 @@ static struct xio_tasks_pool_ops   primary_tasks_pool_ops = {
 	.pool_get_params	= xio_rdma_primary_pool_get_params,
 	.slab_pre_create	= xio_rdma_primary_pool_slab_pre_create,
 	.slab_post_create	= xio_rdma_primary_pool_slab_post_create,
-	.slab_destroy		= xio_rdma_primary_pool_slab_destroy,
+	.slab_destroy		= xio_rdma_pool_slab_destroy,
 	.slab_init_task		= xio_rdma_primary_pool_slab_init_task,
 	.slab_remap_task	= xio_rdma_primary_pool_slab_remap_task,
 	.pool_post_create	= xio_rdma_primary_pool_post_create,

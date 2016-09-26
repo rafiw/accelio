@@ -203,6 +203,8 @@ struct xio_options {
 	int			pad;
 
 	struct xio_options_keepalive ka;
+	int			pad2;
+	struct xio_mem_alloc_params mem_alloc_params;
 };
 
 /*---------------------------------------------------------------------------*/

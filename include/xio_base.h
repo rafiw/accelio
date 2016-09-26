@@ -1150,6 +1150,7 @@ enum xio_optname {
 	 * Typically, accelio allocates memory in huge pages (usually 2M) and
 	 * not in regular pages (4k). This flag will cause accelio to allocate
 	 * memory in regular pages.
+	 * @note XIO_OPTNAME_PRIMARY_POOL_ALLOC_METHOD is more flexible
 	 */
 	XIO_OPTNAME_DISABLE_HUGETBL = 0,
 	/** set user log function					      */
@@ -1227,6 +1228,17 @@ enum xio_optname {
 	XIO_OPTNAME_XFER_BUF_ALIGN,
 	/** set/get alignment of inline xio data buffer address		      */
 	XIO_OPTNAME_INLINE_XIO_DATA_ALIGN,
+	/** determines the allocation type of the transport pool,
+	 * see @struct xio_mem_alloc_params
+	 * default is XIO_MEM_ALLOC_FLAG_HUGE_PAGES_ALLOC.
+	 * In RDMA the memory will always be registered by default.
+	 * In TCP the memory will not be registered by default.
+	 * @note this parameter by default is the same as
+	 * XIO_OPTNAME_DISABLE_HUGETBL.
+	 * If you set XIO_OPTNAME_DISABLE_HUGETBL then regular allocation will
+	 * be used to keep backward compatibility.
+	 */
+	XIO_OPTNAME_POOL_ALLOC_METHOD,
 
 	/* XIO_OPTLEVEL_RDMA/TCP */
 	/** enables the internal transport memory pool. This flag is enabled
@@ -1290,6 +1302,14 @@ enum xio_optname {
 	 * xio_connection 2 file descriptors are used.
 	 */
 	XIO_OPTNAME_TCP_DUAL_STREAM,
+	/** force registering the memory of the tcp primary pool.
+	 * This flag effects the memory registration of the tcp primary pool.
+	 * Tcp uses the function @ref xio_mem_alloc_ex to allocate the memory
+	 * to the pool, this flag effects the @ref xio_reg_mem_opt.
+	 * to save CPU and improve performance this flag should be disabled.
+	 * by default it's disabled.
+	 */
+	XIO_OPTNAME_TCP_REGISTER_TASK_POOL,
 };
 
 /**

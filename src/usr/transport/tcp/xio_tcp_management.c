@@ -67,6 +67,7 @@
 #define XIO_OPTVAL_DEF_TCP_SO_SNDBUF			4194304
 #define XIO_OPTVAL_DEF_TCP_SO_RCVBUF			4194304
 #define XIO_OPTVAL_DEF_TCP_DUAL_SOCK			1
+#define XIO_OPTVAL_DEF_TCP_REGISTER_POOL		0
 
 /*---------------------------------------------------------------------------*/
 /* globals								     */
@@ -91,7 +92,7 @@ struct xio_tcp_options			tcp_options = {
 	XIO_OPTVAL_DEF_TCP_SO_SNDBUF,		/*tcp_so_sndbuf*/
 	XIO_OPTVAL_DEF_TCP_SO_RCVBUF,		/*tcp_so_rcvbuf*/
 	XIO_OPTVAL_DEF_TCP_DUAL_SOCK,		/*tcp_dual_sock*/
-	0					/*pad*/
+	XIO_OPTVAL_DEF_TCP_REGISTER_POOL	/*tcp_register_pool*/
 };
 
 /*---------------------------------------------------------------------------*/
@@ -2154,32 +2155,26 @@ static int xio_tcp_primary_pool_slab_pre_create(
 	struct xio_tcp_tasks_slab *tcp_slab =
 		(struct xio_tcp_tasks_slab *)slab_dd_data;
 	size_t inline_buf_sz = xio_tcp_get_inline_buffer_size();
-	size_t	alloc_sz = alloc_nr * ALIGN(inline_buf_sz, PAGE_SIZE);
-	int	retval;
+	size_t alloc_sz = alloc_nr * ALIGN(inline_buf_sz, PAGE_SIZE);
+	int retval;
+	struct xio_mem_alloc_params params = {
+		.alloc_method = disable_huge_pages ?
+				XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC :
+				g_options.mem_alloc_params.alloc_method,
+		.numa_id = g_options.mem_alloc_params.numa_id,
+		.register_mem = 0,
+	};
 
 	tcp_slab->buf_size = inline_buf_sz;
 
-	if (disable_huge_pages) {
-		retval = xio_mem_alloc(alloc_sz, &tcp_slab->reg_mem);
-		if (retval) {
-			xio_set_error(ENOMEM);
-			ERROR_LOG("xio_alloc tcp pool sz:%zu failed\n",
-				  alloc_sz);
-			return -1;
-		}
-		tcp_slab->data_pool = tcp_slab->reg_mem.addr;
-	} else {
-		/* maybe allocation of with unuma_alloc can provide better
-		 * performance?
-		 */
-		tcp_slab->data_pool = umalloc_huge_pages(alloc_sz);
-		if (!tcp_slab->data_pool) {
-			xio_set_error(ENOMEM);
-			ERROR_LOG("malloc tcp pool sz:%zu failed\n",
-				  alloc_sz);
-			return -1;
-		}
+	retval = xio_mem_alloc_ex(alloc_sz, &tcp_slab->reg_mem, &params);
+	if (retval) {
+		xio_set_error(ENOMEM);
+		ERROR_LOG("xio_alloc tcp pool sz:%zu failed\n",
+			  alloc_sz);
+		return -1;
 	}
+	tcp_slab->data_pool = tcp_slab->reg_mem.addr;
 
 	DEBUG_LOG("pool buf:%p\n", tcp_slab->data_pool);
 
@@ -2229,10 +2224,7 @@ static int xio_tcp_primary_pool_slab_destroy(
 	struct xio_tcp_tasks_slab *tcp_slab =
 		(struct xio_tcp_tasks_slab *)slab_dd_data;
 
-	if (tcp_slab->reg_mem.addr)
-		xio_mem_free(&tcp_slab->reg_mem);
-	else
-		ufree_huge_pages(tcp_slab->data_pool);
+	xio_mem_free(&tcp_slab->reg_mem);
 
 	return 0;
 }
@@ -2401,6 +2393,10 @@ static int xio_tcp_set_opt(void *xio_obj,
 		VALIDATE_SZ(sizeof(int));
 		tcp_options.tcp_dual_sock = *((int *)optval);
 		return 0;
+	case XIO_OPTNAME_TCP_REGISTER_TASK_POOL:
+		VALIDATE_SZ(sizeof(int));
+		tcp_options.tcp_register_pool = *((int *)optval);
+		return 0;
 	default:
 		break;
 	}
@@ -2449,6 +2445,10 @@ static int xio_tcp_get_opt(void  *xio_obj,
 		return 0;
 	case XIO_OPTNAME_TCP_DUAL_STREAM:
 		*((int *)optval) = tcp_options.tcp_dual_sock;
+		*optlen = sizeof(int);
+		return 0;
+	case XIO_OPTNAME_TCP_REGISTER_TASK_POOL:
+		*((int *)optval) = tcp_options.tcp_register_pool;
 		*optlen = sizeof(int);
 		return 0;
 	default:

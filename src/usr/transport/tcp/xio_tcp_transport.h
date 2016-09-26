@@ -128,7 +128,7 @@ struct xio_tcp_options {
 	int			tcp_so_sndbuf;
 	int			tcp_so_rcvbuf;
 	int			tcp_dual_sock;
-	int			pad;
+	int			tcp_register_pool;
 };
 
 #define XIO_TCP_REQ_HEADER_VERSION	1
