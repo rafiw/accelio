@@ -111,7 +111,8 @@ struct test_params {
 	uint64_t		nsent;
 	uint64_t		nrecv;
 	uint16_t		finite_run;
-	uint16_t		padding[3];
+	uint16_t		register_mem;
+	uint16_t		padding[2];
 	uint64_t		disconnect_nr;
 	struct xio_reg_mem	reg_mem;
 };
@@ -401,12 +402,15 @@ static int on_msg_error(struct xio_session *session,
 static int assign_data_in_buf(struct xio_msg *msg, void *cb_user_context)
 {
 	struct test_params *test_params = (struct test_params *)cb_user_context;
-	struct xio_iovec_ex	*sglist = vmsg_sglist(&msg->in);
+	struct xio_iovec_ex *sglist = vmsg_sglist(&msg->in);
 	int			nents = vmsg_sglist_nents(&msg->in);
-	int i;
+	int			i;
+	struct xio_mem_alloc_params reg = {
+		.register_mem = test_params->register_mem,
+	};
 
 	if (test_params->reg_mem.addr == NULL)
-		xio_mem_alloc(XIO_READ_BUF_LEN, &test_params->reg_mem);
+		xio_mem_alloc_ex(XIO_READ_BUF_LEN, &test_params->reg_mem, &reg);
 
 	for (i = 0; i < nents; i++) {
 		sglist[i].iov_base = test_params->reg_mem.addr;
@@ -746,6 +750,11 @@ int main(int argc, char *argv[])
 	memset(&cparams, 0, sizeof(cparams));
 	test_params.stat.first_time = 1;
 	test_params.finite_run = test_config.finite_run;
+
+	if (strncmp(test_config.transport, "rdma", 4))
+		test_params.register_mem = 0;
+	else
+		test_params.register_mem = 1;
 
 	/* set accelio max message vector used */
 	xio_set_opt(NULL,

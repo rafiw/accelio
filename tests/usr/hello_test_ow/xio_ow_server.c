@@ -79,7 +79,8 @@ struct test_params {
 	uint64_t		nsent;
 	uint64_t		nrecv;
 	uint16_t		finite_run;
-	uint16_t		padding[3];
+	uint16_t		register_mem;
+	uint16_t		padding[2];
 	uint64_t		disconnect_nr;
 };
 
@@ -228,12 +229,16 @@ static int on_msg_error(struct xio_session *session,
 /*---------------------------------------------------------------------------*/
 static int assign_data_in_buf(struct xio_msg *msg, void *cb_user_context)
 {
-	struct test_params *test_params = (struct test_params *)cb_user_context;
-	struct xio_iovec_ex	*sglist = vmsg_sglist(&msg->in);
+	struct test_params		*test_params =
+				(struct test_params *)cb_user_context;
+	struct xio_iovec_ex		*sglist = vmsg_sglist(&msg->in);
+	struct xio_mem_alloc_params	reg = {
+		.register_mem = test_params->register_mem,
+	};
 
 	vmsg_sglist_set_nents(&msg->in, 1);
 	if (test_params->reg_mem.addr == NULL)
-		xio_mem_alloc(XIO_READ_BUF_LEN, &test_params->reg_mem);
+		xio_mem_alloc_ex(XIO_READ_BUF_LEN, &test_params->reg_mem, &reg);
 
 	sglist[0].iov_base = test_params->reg_mem.addr;
 	sglist[0].mr = test_params->reg_mem.mr;
@@ -414,6 +419,11 @@ int main(int argc, char *argv[])
 	memset(&test_params, 0, sizeof(struct test_params));
 	test_params.finite_run = test_config.finite_run;
 	test_params.disconnect_nr = PRINT_COUNTER * DISCONNECT_FACTOR;
+
+	if (strncmp(test_config.transport, "rdma", 4))
+		test_params.register_mem = 0;
+	else
+		test_params.register_mem = 1;
 
 	test_params.ctx = xio_context_create(NULL, 0, test_config.cpu);
 	if (test_params.ctx == NULL) {

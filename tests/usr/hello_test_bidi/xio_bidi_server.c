@@ -71,6 +71,7 @@ struct xio_test_config {
 	uint32_t		hdr_len;
 	uint32_t		data_len;
 	uint32_t		finite_run;
+	uint32_t		register_mem;
 };
 
 
@@ -92,6 +93,7 @@ static struct xio_test_config  test_config = {
 	.hdr_len = XIO_DEF_HEADER_SIZE,
 	.data_len = XIO_DEF_DATA_SIZE,
 	.finite_run = 0,
+	.register_mem = 1
 };
 
 /*---------------------------------------------------------------------------*/
@@ -452,11 +454,14 @@ static int on_msg_error(struct xio_session *session,
 /*---------------------------------------------------------------------------*/
 static int assign_data_in_buf(struct xio_msg *msg, void *cb_user_context)
 {
-	struct xio_iovec_ex	*sglist = vmsg_sglist(&msg->in);
+	struct xio_iovec_ex		*sglist = vmsg_sglist(&msg->in);
+	struct xio_mem_alloc_params	reg = {
+		.register_mem = test_config.register_mem,
+	};
 
 	vmsg_sglist_set_nents(&msg->in, 1);
 	if (reg_mem.addr == NULL)
-		xio_mem_alloc(XIO_READ_BUF_LEN, &reg_mem);
+		xio_mem_alloc_ex(XIO_READ_BUF_LEN, &reg_mem, &reg);
 
 	sglist[0].iov_base = reg_mem.addr;
 	sglist[0].mr = reg_mem.mr;
@@ -641,6 +646,9 @@ int main(int argc, char *argv[])
 		test_config.transport,
 		test_config.server_addr,
 		test_config.server_port);
+
+	if (strncmp(test_config.transport, "rdma", 4))
+		test_config.register_mem = 0;
 
 	server = xio_bind(ctx, &server_ops, url, NULL, 0, NULL);
 	if (server) {

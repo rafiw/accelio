@@ -96,7 +96,8 @@ struct ow_test_params {
 	unsigned int		nsent;
 	unsigned int		ndelivered;
 	uint16_t		finite_run;
-	uint16_t		padding[3];
+	uint16_t		register_mem;
+	uint16_t		padding[2];
 	uint64_t		disconnect_nr;
 };
 
@@ -365,13 +366,16 @@ static int on_msg_error(struct xio_session *session,
 /*---------------------------------------------------------------------------*/
 static int assign_data_in_buf(struct xio_msg *msg, void *cb_user_context)
 {
-	struct xio_iovec_ex	*sglist = vmsg_sglist(&msg->in);
-	struct ow_test_params	*ow_params =
+	struct xio_iovec_ex		*sglist = vmsg_sglist(&msg->in);
+	struct ow_test_params		*ow_params =
 				(struct ow_test_params *)cb_user_context;
+	struct xio_mem_alloc_params	reg = {
+		.register_mem = ow_params->register_mem,
+	};
 
 	vmsg_sglist_set_nents(&msg->in, 1);
 	if (ow_params->reg_mem.addr == NULL)
-		xio_mem_alloc(XIO_READ_BUF_LEN, &ow_params->reg_mem);
+		xio_mem_alloc_ex(XIO_READ_BUF_LEN, &ow_params->reg_mem, &reg);
 
 	sglist[0].iov_base = ow_params->reg_mem.addr;
 	sglist[0].mr = ow_params->reg_mem.mr;
@@ -590,6 +594,11 @@ int main(int argc, char *argv[])
 			error, xio_strerror(error));
 		xio_assert(ow_params.ctx != NULL);
 	}
+
+	if (strncmp(test_config.transport, "rdma", 4))
+		ow_params.register_mem = 0;
+	else
+		ow_params.register_mem = 1;
 
 	/* create a url and open session */
 	sprintf(url, "%s://%s:%d",

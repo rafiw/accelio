@@ -107,6 +107,7 @@ struct  thread_data {
 	pthread_t		thread_id;
 	uint64_t		nsent;
 	uint64_t		ncomp;
+	uint64_t		register_mem;
 };
 
 /* server private data */
@@ -285,12 +286,15 @@ static int on_msg_error(struct xio_session *session,
 /*---------------------------------------------------------------------------*/
 int assign_data_in_buf(struct xio_msg *msg, void *cb_user_context)
 {
-	struct thread_data	*tdata = (struct thread_data *)cb_user_context;
-	struct xio_iovec_ex	*sglist = vmsg_sglist(&msg->in);
+	struct thread_data *tdata = (struct thread_data *)cb_user_context;
+	struct xio_iovec_ex *sglist = vmsg_sglist(&msg->in);
+	struct xio_mem_alloc_params reg = {
+		.register_mem = (int)tdata->register_mem,
+	};
 
 	vmsg_sglist_set_nents(&msg->in, 1);
 	if (tdata->reg_mem.addr == NULL)
-		xio_mem_alloc(XIO_READ_BUF_LEN, &tdata->reg_mem);
+		xio_mem_alloc_ex(XIO_READ_BUF_LEN, &tdata->reg_mem, &reg);
 
 	sglist[0].iov_base = tdata->reg_mem.addr;
 	sglist[0].mr = tdata->reg_mem.mr;
@@ -618,6 +622,7 @@ int main(int argc, char *argv[])
 	int			cpu;
 	int			exit_code = 0;
 	void			*thr_exit_code;
+	int			register_mem = 1;
 
 	xio_init();
 
@@ -661,6 +666,9 @@ int main(int argc, char *argv[])
 
 	server_data.finite_run = test_config.finite_run;
 
+	if (strncmp(test_config.transport, "rdma", 4))
+		register_mem = 0;
+
 	/* create url to connect to */
 	sprintf(url, "%s://%s:%d",
 		test_config.transport,
@@ -686,6 +694,7 @@ int main(int argc, char *argv[])
 		}
 		server_data.tdata[i].affinity = cpu;
 		server_data.tdata[i].sdata = &server_data;
+		server_data.tdata[i].register_mem = register_mem;
 		port++;
 		sprintf(server_data.tdata[i].portal, "%s://%s:%d",
 			test_config.transport,
