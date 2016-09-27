@@ -38,6 +38,8 @@
 #ifndef XIO_COMMON_TRANSPORT_H
 #define XIO_COMMON_TRANSPORT_H
 
+#include "xio_mem.h"
+
 #define MAX_SGE				(XIO_IOVLEN + 1)
 
 #define MAX_HDR_SZ			512
@@ -77,16 +79,6 @@ enum xio_transport_state {
 	XIO_TRANSPORT_STATE_CLOSED,
 	XIO_TRANSPORT_STATE_DESTROYED,
 	XIO_TRANSPORT_STATE_ERROR
-};
-
-struct xio_mr {
-	void				*addr;  /* for new devices */
-	size_t				length; /* for new devices */
-	int				access; /* for new devices */
-	int				addr_alloced;	/* address was
-							   allocated by xio */
-	struct list_head		dm_list;
-	struct list_head		mr_list_entry;
 };
 
 /*

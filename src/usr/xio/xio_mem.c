@@ -40,6 +40,12 @@
 #include "xio_log.h"
 #include "xio_common.h"
 #include "xio_mem.h"
+#ifdef HAVE_INFINIBAND_VERBS_H
+#include <infiniband/verbs.h>
+#include "xio_transport.h"
+#include "xio_workqueue.h"
+#include "xio_rdma_transport.h"
+#endif
 
 #define HUGE_PAGE_SZ			(2*1024*1024)
 #ifndef WIN32
@@ -50,6 +56,325 @@ int			  disable_huge_pages	= 1; /* bypass hugepages */
 int			  allocator_assigned	= 0;
 struct xio_mem_allocator  g_mem_allocator;
 struct xio_mem_allocator *mem_allocator = &g_mem_allocator;
+
+#ifdef HAVE_INFINIBAND_VERBS_H
+
+/*---------------------------------------------------------------------------*/
+/* xio_register_transport						     */
+/*---------------------------------------------------------------------------*/
+static int xio_register_reg_mem_transports(void)
+{
+	static int init_transport;
+	static int result;
+	/* this may the first call in application so initialize the rdma */
+	if (result)
+		return init_transport;
+	result = 1;
+	if (!init_transport) {
+		struct xio_transport *transport = xio_get_transport("rdma");
+
+		if (!transport)
+			return 0;
+
+		init_transport = 1;
+	}
+
+	return init_transport;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_register_no_dev						     */
+/*---------------------------------------------------------------------------*/
+static inline int xio_mem_register_no_dev(void *addr, size_t length,
+					  struct xio_reg_mem *reg_mem)
+{
+	static struct xio_mr dummy_mr;
+
+	reg_mem->addr = addr;
+	reg_mem->length = length;
+	reg_mem->mr = &dummy_mr;
+
+	return 0;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_dereg_no_dev							     */
+/*---------------------------------------------------------------------------*/
+static inline int xio_mem_dereg_no_dev(struct xio_reg_mem *reg_mem)
+{
+	reg_mem->mr = NULL;
+	return 0;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_free_no_dev							     */
+/*---------------------------------------------------------------------------*/
+static int xio_mem_free_no_dev(struct xio_reg_mem *reg_mem)
+{
+	int retval = 0;
+
+	if (reg_mem->addr)
+		ufree(reg_mem->addr);
+
+	retval = xio_mem_dereg_no_dev(reg_mem);
+
+	return retval;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_alloc_no_dev							     */
+/*---------------------------------------------------------------------------*/
+static int xio_mem_alloc_no_dev(size_t length, struct xio_reg_mem *reg_mem)
+{
+	size_t			real_size;
+	int			alloced = 0;
+
+	real_size = ALIGN(length, page_size);
+	reg_mem->addr = umemalign(page_size, real_size);
+	if (!reg_mem->addr) {
+		ERROR_LOG("xio_memalign failed. sz:%zu\n", real_size);
+		goto cleanup;
+	}
+	/*memset(reg_mem->addr, 0, real_size);*/
+	alloced = 1;
+
+	xio_mem_register_no_dev(reg_mem->addr, length, reg_mem);
+	if (!reg_mem->mr) {
+		ERROR_LOG("xio_reg_mr failed. addr:%p, length:%d access %d\n",
+			  reg_mem->addr, length, reg_mem->mr->access);
+
+		goto cleanup1;
+	}
+	reg_mem->length = length;
+
+	return 0;
+
+cleanup1:
+	if (alloced)
+		ufree(reg_mem->addr);
+cleanup:
+	return -1;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_register							     */
+/*---------------------------------------------------------------------------*/
+int xio_mem_register(void *addr, size_t length, struct xio_reg_mem *reg_mem)
+{
+	if (!addr || length == 0) {
+		xio_set_error(EINVAL);
+		return -1;
+	}
+	if (list_empty(&dev_list) && !xio_register_reg_mem_transports())
+		return xio_mem_register_no_dev(addr, length, reg_mem);
+
+	reg_mem->mr = xio_reg_mr_ex(&addr, length,
+			     IBV_ACCESS_LOCAL_WRITE  |
+			     IBV_ACCESS_REMOTE_WRITE |
+			     IBV_ACCESS_REMOTE_READ);
+	if (!reg_mem->mr)
+		return -1;
+
+	reg_mem->addr	= addr;
+	reg_mem->length = length;
+
+	return 0;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_dereg							     */
+/*---------------------------------------------------------------------------*/
+int xio_mem_dereg(struct xio_reg_mem *reg_mem)
+{
+	int retval;
+
+	if (!reg_mem->mr) {
+		xio_set_error(EINVAL);
+		return -1;
+	}
+	if (list_empty(&dev_list))
+		return xio_mem_dereg_no_dev(reg_mem);
+
+	retval = xio_dereg_mr(reg_mem->mr);
+
+	reg_mem->mr = NULL;
+
+	return  retval;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_alloc							     */
+/*---------------------------------------------------------------------------*/
+int xio_mem_alloc(size_t length, struct xio_reg_mem *reg_mem)
+{
+	struct xio_device	*dev;
+	size_t			real_size;
+	uint64_t		access;
+
+	if (length == 0 || !reg_mem) {
+		xio_set_error(EINVAL);
+		ERROR_LOG("xio_mem_alloc failed. length:%zu\n", length);
+		return -1;
+	}
+	if (list_empty(&dev_list)) {
+		if (!xio_register_reg_mem_transports() && list_empty(&dev_list))
+			return xio_mem_alloc_no_dev(length, reg_mem);
+	}
+
+	access = IBV_ACCESS_LOCAL_WRITE  |
+		 IBV_ACCESS_REMOTE_WRITE |
+		 IBV_ACCESS_REMOTE_READ;
+
+	dev = list_first_entry(&dev_list, struct xio_device, dev_list_entry);
+
+	if (dev && IBV_IS_MPAGES_AVAIL(&dev->device_attr)) {
+		access |= IBV_XIO_ACCESS_ALLOCATE_MR;
+		reg_mem->addr = NULL;
+		reg_mem->mr = xio_reg_mr_ex(&reg_mem->addr, length, access);
+		if (reg_mem->mr) {
+			reg_mem->length			= length;
+			reg_mem->mr->addr_alloced	= 0;
+			goto exit;
+		}
+		WARN_LOG("Contig pages allocation failed. (errno=%d %m)\n",
+			 errno);
+	}
+
+	real_size = ALIGN(length, page_size);
+	reg_mem->addr = umemalign(page_size, real_size);
+	if (unlikely(!reg_mem->addr)) {
+		xio_set_error(ENOMEM);
+		ERROR_LOG("memalign failed. sz:%zu\n", real_size);
+		goto cleanup;
+	}
+	reg_mem->mr = xio_reg_mr_ex(&reg_mem->addr, length, access);
+	if (unlikely(!reg_mem->mr)) {
+		ERROR_LOG("xio_reg_mr_ex failed. "
+			  "addr:%p, length:%d, access:0x%x\n",
+			   reg_mem->addr, length, access);
+
+		goto cleanup1;
+	}
+	/*memset(reg_mem->addr, 0, length);*/
+	reg_mem->length			= length;
+	reg_mem->mr->addr_alloced	= 1;
+
+exit:
+	return 0;
+
+cleanup1:
+	ufree(reg_mem->addr);
+cleanup:
+	return -1;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_free								     */
+/*---------------------------------------------------------------------------*/
+int xio_mem_free(struct xio_reg_mem *reg_mem)
+{
+	int retval;
+
+	if (!reg_mem->mr) {
+		xio_set_error(EINVAL);
+		return -1;
+	}
+	if (list_empty(&dev_list))
+		return xio_mem_free_no_dev(reg_mem);
+
+	if (reg_mem->mr->addr_alloced) {
+		ufree(reg_mem->addr);
+		reg_mem->addr = NULL;
+		reg_mem->mr->addr_alloced = 0;
+	}
+
+	retval = xio_dereg_mr(reg_mem->mr);
+
+	reg_mem->mr = NULL;
+
+	return retval;
+}
+
+#else
+/*---------------------------------------------------------------------------*/
+/* xio_mem_register							     */
+/*---------------------------------------------------------------------------*/
+int xio_mem_register(void *addr, size_t length, struct xio_reg_mem *reg_mem)
+{
+	static struct xio_mr dummy_mr;
+
+	if (!addr || !reg_mem) {
+		xio_set_error(EINVAL);
+		return -1;
+	}
+
+	reg_mem->addr = addr;
+	reg_mem->length = length;
+	reg_mem->mr = &dummy_mr;
+
+	return 0;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_dereg							     */
+/*---------------------------------------------------------------------------*/
+int xio_mem_dereg(struct xio_reg_mem *reg_mem)
+{
+	reg_mem->mr = NULL;
+	return 0;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_alloc							     */
+/*---------------------------------------------------------------------------*/
+int xio_mem_alloc(size_t length, struct xio_reg_mem *reg_mem)
+{
+	size_t			real_size;
+	int			alloced = 0;
+
+	real_size = ALIGN(length, page_size);
+	reg_mem->addr = umemalign(page_size, real_size);
+	if (!reg_mem->addr) {
+		ERROR_LOG("xio_memalign failed. sz:%zu\n", real_size);
+		goto cleanup;
+	}
+	/*memset(reg_mem->addr, 0, real_size);*/
+	alloced = 1;
+
+	xio_mem_register(reg_mem->addr, length, reg_mem);
+	if (!reg_mem->mr) {
+		ERROR_LOG("xio_reg_mr failed. addr:%p, length:%d\n",
+			  reg_mem->addr, length, access);
+
+		goto cleanup1;
+	}
+	reg_mem->length = length;
+
+	return 0;
+
+cleanup1:
+	if (alloced)
+		ufree(reg_mem->addr);
+cleanup:
+	return -1;
+}
+
+/*---------------------------------------------------------------------------*/
+/* xio_mem_free								     */
+/*---------------------------------------------------------------------------*/
+int xio_mem_free(struct xio_reg_mem *reg_mem)
+{
+	int			retval = 0;
+
+	if (reg_mem->addr)
+		ufree(reg_mem->addr);
+
+	retval = xio_mem_dereg(reg_mem);
+
+	return retval;
+}
+
+#endif /*HAVE_INFINIBAND_VERBS_H*/
 
 /*---------------------------------------------------------------------------*/
 /* malloc_huge_pages	                                                     */

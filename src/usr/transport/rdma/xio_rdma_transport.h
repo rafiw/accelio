@@ -40,6 +40,12 @@
 
 #include <sys/hashtable.h>
 #include "xio_hash.h"
+#include "xio_mbuf.h"
+#include "xio_task.h"
+#include "xio_usr_transport.h"
+#include "xio_ev_data.h"
+#include "xio_observer.h"
+#include "xio_transport.h"
 
 /*---------------------------------------------------------------------------*/
 /* externals								     */
@@ -578,5 +584,9 @@ int xio_rkey_table_create(struct xio_device *old, struct xio_device *_new,
 			  struct xio_rkey_tbl **htbl, uint16_t *len);
 
 void xio_rdma_poll_completions(struct xio_cq *tcq, int timeout_us);
+
+int xio_dereg_mr(struct xio_mr *tmr);
+
+struct xio_mr *xio_reg_mr_ex(void **addr, size_t length, uint64_t access);
 
 #endif  /* XIO_RDMA_TRANSPORT_H */

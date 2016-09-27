@@ -38,6 +38,8 @@
 #ifndef XIO_MBUF_H
 #define XIO_MBUF_H
 
+#include "xio_protocol.h"
+
 	struct xio_mbuf_buf {
 		void		*head;
 		void		*tail;

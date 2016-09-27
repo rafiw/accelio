@@ -50,6 +50,15 @@ extern void free_huge_pages(void *ptr);
 extern void *xio_numa_alloc(size_t bytes, int node);
 extern void xio_numa_free_ptr(void *ptr);
 
+struct xio_mr {
+	void			*addr;  /* for new devices */
+	size_t			length; /* for new devices */
+	int			access; /* for new devices */
+	int			addr_alloced; /* address was allocated by xio */
+	struct list_head	dm_list;
+	struct list_head	mr_list_entry;
+};
+
 static inline void xio_disable_huge_pages(int disable)
 {
 	if (disable_huge_pages)
