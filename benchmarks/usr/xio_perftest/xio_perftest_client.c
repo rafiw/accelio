@@ -197,9 +197,11 @@ static void *worker_thread(void *data)
 	cpu_set_t			cpuset;
 	struct xio_msg			*msg;
 	unsigned int			i;
+	struct xio_mem_alloc_params	reg = {
+		.register_mem = tdata->user_param->register_mem,
+	};
 
 	/* set affinity to thread */
-
 	CPU_ZERO(&cpuset);
 	CPU_SET(tdata->affinity, &cpuset);
 
@@ -222,7 +224,7 @@ static void *worker_thread(void *data)
 	tdata->conn = xio_connect(&cparams);
 
 	if (tdata->data_len)
-		xio_mem_alloc(tdata->data_len, &tdata->reg_mem);
+		xio_mem_alloc_ex(tdata->data_len, &tdata->reg_mem, &reg);
 
 	for (i = 0;  i < tdata->user_param->queue_depth; i++) {
 		/* create transaction */
@@ -517,7 +519,6 @@ int run_client_test(struct perf_parameters *user_param)
 			sess_data.tdata[i].sdata		= &sess_data;
 			sess_data.tdata[i].user_param		= user_param;
 			sess_data.tdata[i].data_len		= data_len;
-
 			/* all threads are working on the same session */
 			sess_data.tdata[i].session	= sess_data.session;
 			pthread_create(&sess_data.tdata[i].thread_id, NULL,

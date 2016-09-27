@@ -71,6 +71,10 @@ int main(int argc, char *argv[])
 
 	if (parse_cmdline(&user_param, argc, argv) != 0)
 		return -1;
+	if (strncmp(user_param.transport, "rdma", 4))
+		user_param.register_mem = 0;
+	else
+		user_param.register_mem = 1;
 
 	print_test_info(&user_param);
 

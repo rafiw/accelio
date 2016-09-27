@@ -101,7 +101,7 @@ struct perf_parameters {
 	uint32_t		poll_timeout;
 	uint32_t		threads_num;
 	uint32_t		portals_arr_len;
-	uint32_t		pad;
+	uint32_t		register_mem;
 	TestType		test_type;
 	MachineType		machine_type;
 	Verb			verb;
