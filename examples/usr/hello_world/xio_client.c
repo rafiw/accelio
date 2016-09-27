@@ -45,6 +45,7 @@
 #define QUEUE_DEPTH		512
 #define PRINT_COUNTER		4000000
 #define DISCONNECT_NR		(2 * PRINT_COUNTER)
+#define ONE_MB			(1 << 20)
 
 int test_disconnect;
 int queue_depth;
@@ -169,10 +170,11 @@ int main(int argc, char *argv[])
 	struct xio_session_params	params;
 	struct xio_connection_params	cparams;
 	struct xio_msg			*req;
-	struct xio_reg_mem      	xbuf;
-        int 				msg_size = 0;
-        int 				max_msg_size = 0;
-        uint8_t 			*data = NULL;
+	struct xio_reg_mem		xbuf = {0};
+	struct xio_mem_alloc_params	reg;
+	int				msg_size = 0;
+	int				max_msg_size = 0;
+	uint8_t				*data = NULL;
 
 	if (argc < 3) {
 		printf("Usage: %s <host> <port> <transport:optional>" \
@@ -189,7 +191,7 @@ int main(int argc, char *argv[])
 	memset(&session_data, 0, sizeof(session_data));
 	memset(&params, 0, sizeof(params));
 	memset(&cparams, 0, sizeof(cparams));
-
+	reg.register_mem = 1;
 	/* initialize library */
 	xio_init();
 
@@ -211,11 +213,17 @@ int main(int argc, char *argv[])
 	session_data.ctx = xio_context_create(NULL, 0, -1);
 
 	/* create url to connect to */
-	if (argc > 3)
+	if (argc > 3) {
+		if (strncmp(argv[3], "rdma", 4))
+			reg.register_mem = 0;
 		sprintf(url, "%s://%s:%s", argv[3], argv[1], argv[2]);
-	else
+	} else {
 		sprintf(url, "rdma://%s:%s", argv[1], argv[2]);
-
+	}
+	if (msg_size > ONE_MB)
+		reg.alloc_method = XIO_MEM_ALLOC_FLAG_HUGE_PAGES_ALLOC;
+	else
+		reg.alloc_method = XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC;
 	params.type		= XIO_SESSION_CLIENT;
 	params.ses_ops		= &ses_ops;
 	params.user_context	= &session_data;
@@ -253,7 +261,7 @@ int main(int argc, char *argv[])
 		} else { /* big msgs */
 			if (data == NULL) {
 				printf("allocating xio memory...\n");
-				xio_mem_alloc(msg_size, &xbuf);
+				xio_mem_alloc_ex(msg_size, &xbuf, &reg);
 				data = (uint8_t *)xbuf.addr;
 				memset(data, 0, msg_size);
 				sprintf((char *)data, "hello world data request");

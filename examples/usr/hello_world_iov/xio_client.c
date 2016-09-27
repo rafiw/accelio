@@ -68,6 +68,7 @@ struct session_data {
 	size_t			idatalen;
 	uint8_t			*odata;
 	size_t			odatalen;
+	size_t			register_mem;
 };
 
 /*---------------------------------------------------------------------------*/
@@ -117,19 +118,23 @@ static int msg_vec_init(struct session_data *sdata,
 /*---------------------------------------------------------------------------*/
 static void msg_prep_for_send(struct session_data *sdata, struct xio_msg *msg)
 {
-	struct xio_vmsg		*pomsg = &msg->out;
-	struct xio_iovec_ex	*osglist = vmsg_sglist(pomsg);
-	struct xio_vmsg		*pimsg = &msg->in;
-	struct xio_iovec_ex	*isglist = vmsg_sglist(pimsg);
-	size_t			i;
+	struct xio_vmsg			*pomsg = &msg->out;
+	struct xio_iovec_ex		*osglist = vmsg_sglist(pomsg);
+	struct xio_vmsg			*pimsg = &msg->in;
+	struct xio_iovec_ex		*isglist = vmsg_sglist(pimsg);
+	struct xio_mem_alloc_params	reg;
+	size_t				i;
 
 	if (sdata->hdr == NULL) {
 		sdata->hdr	= (uint8_t *)strdup("hello world request header");
 		sdata->hdrlen	= strlen((char *)sdata->hdr) + 1;
 	}
+	reg.register_mem = sdata->register_mem;
+	reg.alloc_method = XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC;
 	if (sdata->odata == NULL) {
+
 		uint8_t *data;
-		xio_mem_alloc(MSG_DATA_LEN, &sdata->xbuf);
+		xio_mem_alloc_ex(MSG_DATA_LEN, &sdata->xbuf, &reg);
 		data = (uint8_t *)sdata->xbuf.addr;
 		memset(data, 0, MSG_DATA_LEN);
 
@@ -141,7 +146,7 @@ static void msg_prep_for_send(struct session_data *sdata, struct xio_msg *msg)
 	}
 	if (sdata->idata == NULL) {
 		uint8_t *data;
-		xio_mem_alloc(MSG_DATA_LEN, &sdata->in_xbuf);
+		xio_mem_alloc_ex(MSG_DATA_LEN, &sdata->in_xbuf, &reg);
 		data = (uint8_t *)sdata->in_xbuf.addr;
 
 		memset(data, 0, MSG_DATA_LEN);
@@ -348,6 +353,7 @@ int main(int argc, char *argv[])
 	memset(&session_data, 0, sizeof(session_data));
 	memset(&params, 0, sizeof(params));
 	memset(&cparams, 0, sizeof(cparams));
+	session_data.register_mem = 1;
 
 	/* initialize library */
 	xio_init();
@@ -365,12 +371,14 @@ int main(int argc, char *argv[])
 	/* create thread context for the client */
 	session_data.ctx = xio_context_create(NULL, 0, -1);
 
-
 	/* create url to connect to */
-	if (argc > 3)
+	if (argc > 3) {
+		if (strncmp(argv[3], "rdma", 4))
+			session_data.register_mem = 0;
 		sprintf(url, "%s://%s:%s", argv[3], argv[1], argv[2]);
-	else
+	} else {
 		sprintf(url, "rdma://%s:%s", argv[1], argv[2]);
+	}
 
 	if (argc > 4)
 		test_disconnect = atoi(argv[4]);

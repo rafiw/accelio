@@ -67,6 +67,7 @@ struct server_data {
 	size_t			hdrlen;
 	uint8_t			*data;
 	size_t			datalen;
+	size_t			register_mem;
 };
 
 /*---------------------------------------------------------------------------*/
@@ -116,17 +117,20 @@ static int msg_vec_init(struct server_data *sdata,
 /*---------------------------------------------------------------------------*/
 static void msg_prep_for_send(struct server_data *sdata, struct xio_msg *msg)
 {
-	struct xio_vmsg		*pmsg = &msg->out;
-	struct xio_iovec_ex	*sglist = vmsg_sglist(pmsg);
-	size_t			i;
+	struct xio_vmsg			*pmsg = &msg->out;
+	struct xio_iovec_ex		*sglist = vmsg_sglist(pmsg);
+	struct xio_mem_alloc_params	reg;
+	size_t				i;
+	uint8_t				*data;
 
 	if (sdata->hdr == NULL) {
 		sdata->hdr	= (uint8_t *)strdup("hello world response header");
 		sdata->hdrlen	= strlen((char *)sdata->hdr) + 1;
 	}
 	if (sdata->data == NULL) {
-		uint8_t *data;
-		xio_mem_alloc(MSG_DATA_LEN, &sdata->xbuf);
+		reg.register_mem = sdata->register_mem;
+		reg.alloc_method = XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC;
+		xio_mem_alloc_ex(MSG_DATA_LEN, &sdata->xbuf, &reg);
 		data = (uint8_t *)sdata->xbuf.addr;
 		memset(data, 0, MSG_DATA_LEN);
 
@@ -318,17 +322,20 @@ static int on_request(struct xio_session *session,
 /*---------------------------------------------------------------------------*/
 static int assign_data_in_buf(struct xio_msg *msg, void *cb_user_context)
 {
-	struct server_data	*sdata =
+	struct server_data		*sdata =
 					(struct server_data *)cb_user_context;
-	struct xio_iovec_ex	*sglist = vmsg_sglist(&msg->in);
-	int			nents = vmsg_sglist_nents(&msg->in);
-	int			i;
+	struct xio_iovec_ex		*sglist = vmsg_sglist(&msg->in);
+	struct xio_mem_alloc_params	reg;
+	int				nents = vmsg_sglist_nents(&msg->in);
+	int				i;
 
+	reg.register_mem = sdata->register_mem;
+	reg.alloc_method = XIO_MEM_ALLOC_FLAG_REGULAR_PAGES_ALLOC;
 	/* gather into one buffer */
 	if (gather) {
 		if (sdata->in_xbuf.addr == NULL)
-			xio_mem_alloc(MAX_NENTS*MSG_DATA_LEN,
-				      &sdata->in_xbuf);
+			xio_mem_alloc_ex(MAX_NENTS*MSG_DATA_LEN,
+					 &sdata->in_xbuf, &reg);
 
 		vmsg_sglist_set_nents(&msg->in, 1);
 		sglist[0].iov_base	= sdata->in_xbuf.addr;
@@ -337,7 +344,7 @@ static int assign_data_in_buf(struct xio_msg *msg, void *cb_user_context)
 
 	} else {
 		if (sdata->in_xbuf.addr == NULL)
-			xio_mem_alloc(MSG_DATA_LEN, &sdata->in_xbuf);
+			xio_mem_alloc_ex(MSG_DATA_LEN, &sdata->in_xbuf, &reg);
 
 		for (i = 0; i < nents; i++) {
 			sglist[i].iov_base	= sdata->in_xbuf.addr;
@@ -429,11 +436,15 @@ int main(int argc, char *argv[])
 	for (i = 0; i < QUEUE_DEPTH; i++)
 		msg_prep_for_send(&server_data, &server_data.rsp[i]);
 
+	server_data.register_mem = 1;
 	/* create url to connect to */
-	if (argc > 3)
+	if (argc > 3) {
+		if (strncmp(argv[3], "rdma", 4))
+			server_data.register_mem = 0;
 		sprintf(url, "%s://%s:%s", argv[3], argv[1], argv[2]);
-	else
+	} else {
 		sprintf(url, "rdma://%s:%s", argv[1], argv[2]);
+	}
 
 	if (argc > 4)
 		test_disconnect = atoi(argv[4]);
