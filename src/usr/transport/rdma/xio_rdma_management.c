@@ -68,6 +68,7 @@
 #define XIO_OPTVAL_DEF_MAX_IN_IOVSZ			XIO_IOVLEN
 #define XIO_OPTVAL_DEF_MAX_OUT_IOVSZ			XIO_IOVLEN
 #define XIO_OPTVAL_DEF_QP_CAP_MAX_INLINE_DATA		(200)
+#define XIO_OPTVAL_DEF_ENABLE_ODP			0
 
 /*---------------------------------------------------------------------------*/
 /* globals								     */
@@ -96,6 +97,7 @@ struct xio_rdma_options			rdma_options = {
 	.max_in_iovsz			= XIO_OPTVAL_DEF_MAX_IN_IOVSZ,
 	.max_out_iovsz			= XIO_OPTVAL_DEF_MAX_OUT_IOVSZ,
 	.qp_cap_max_inline_data		= XIO_OPTVAL_DEF_QP_CAP_MAX_INLINE_DATA,
+	.enable_odp			= XIO_OPTVAL_DEF_ENABLE_ODP,
 };
 
 /*---------------------------------------------------------------------------*/
@@ -626,6 +628,9 @@ static struct xio_device *xio_device_init(struct ibv_context *ib_ctx)
 		ERROR_LOG("ibv_alloc_pd failed. (errno=%d %m)\n", errno);
 		goto cleanup;
 	}
+#ifdef ENABLE_ODP
+	dev->device_attr.comp_mask = IBV_EXP_DEVICE_ATTR_RESERVED - 1;
+#endif
 	retval = ibv_xio_query_device(dev->verbs, &dev->device_attr);
 	if (retval < 0) {
 		ERROR_LOG("ibv_query_device failed. (errno=%d %m)\n", errno);
@@ -685,6 +690,17 @@ static struct xio_device *xio_device_lookup(struct ibv_context *verbs)
 }
 
 /*---------------------------------------------------------------------------*/
+/* xio_odp_init						     */
+/*---------------------------------------------------------------------------*/
+static inline void xio_odp_init(struct xio_device *dev)
+{
+	spin_lock(&dev_list_lock);
+	if (!dev->odp.enabled && xio_is_odp_supported(dev))
+		xio_reg_odp(dev);
+	spin_unlock(&dev_list_lock);
+}
+
+/*---------------------------------------------------------------------------*/
 /* xio_device_lookup_init						     */
 /*---------------------------------------------------------------------------*/
 static struct xio_device *xio_device_lookup_init(struct ibv_context *verbs)
@@ -698,8 +714,12 @@ static struct xio_device *xio_device_lookup_init(struct ibv_context *verbs)
 	}
 
 	dev = xio_device_lookup(verbs);
-	if (dev)
+	if (dev) {
+		/* check ODP support */
+		if (rdma_options.enable_odp)
+			xio_odp_init(dev);
 		goto exit;
+	}
 
 	/* Connection on new device */
 	TRACE_LOG("Connection via new device %s\n",
@@ -718,6 +738,9 @@ static struct xio_device *xio_device_lookup_init(struct ibv_context *verbs)
 			  ibv_get_device_name(verbs->device));
 		goto cleanup1;
 	}
+	/* check ODP support */
+	if (rdma_options.enable_odp)
+		xio_odp_init(dev);
 
 	/* Add reference count on behalf of the new connection */
 	xio_device_get(dev);
@@ -3260,6 +3283,10 @@ static int xio_rdma_set_opt(void *xio_obj,
 		return 0;
 	case XIO_OPTNAME_ENABLE_FORK_INIT:
 		return xio_rdma_enable_fork_support();
+	case XIO_OPTNAME_ENABLE_ODP:
+		VALIDATE_SZ(sizeof(int));
+		rdma_options.enable_odp = *((int *)optval);
+		return 0;
 	default:
 		break;
 	}
@@ -3296,6 +3323,10 @@ static int xio_rdma_get_opt(void  *xio_obj,
 		 return 0;
 	case XIO_OPTNAME_RDMA_NUM_DEVICES:
 		*((int *)optval) = rdma_num_devices;
+		*optlen = sizeof(int);
+		return 0;
+	case XIO_OPTNAME_ENABLE_ODP:
+		*((int *)optval) = rdma_options.enable_odp;
 		*optlen = sizeof(int);
 		return 0;
 	default:
@@ -3523,7 +3554,7 @@ static int xio_rdma_is_valid_in_req(struct xio_msg *msg)
 				return 0;
 		}
 	}
-	if (mr_found != nents && mr_found)
+	if (mr_found != nents && mr_found && !rdma_options.enable_odp)
 		return 0;
 
 	return 1;
@@ -3579,7 +3610,7 @@ static int xio_rdma_is_valid_out_msg(struct xio_msg *msg)
 			return 0;
 	}
 
-	if (mr_found != nents && mr_found){
+	if (mr_found != nents && mr_found && !rdma_options.enable_odp) {
 		ERROR_LOG(
 			"not all entries has mr (mr_found=%d, nents=%zu)\n",
 			mr_found, nents);

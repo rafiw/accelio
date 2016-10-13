@@ -197,6 +197,26 @@ if test "$enable_shared_receive_queue" = "yes"; then
 fi
 
 ##########################################################################
+# enable On Demand Paging (rdma)
+##########################################################################
+# usage: ./configure --enable-odp
+#
+AC_MSG_CHECKING([odp support in rdma transport])
+AC_ARG_ENABLE([odp],
+	      [AS_HELP_STRING([--enable-odp],
+			      [enable odp (On Demand Paging) - default: disabled])],
+			      [AM_CFLAGS="$AM_CFLAGS -DENABLE_ODP"]
+			      [enable_odp="yes"],
+			      [enable_odp="no"])
+
+AC_MSG_CHECKING([ODP and SRQ are not both enabled])
+if test "$enable_odp" == "$enable_shared_receive_queue"; then
+if test "$enable_odp" == "yes"; then
+AC_MSG_ERROR([ODP and SRQ are not compatible, enable only one])
+fi
+fi
+
+##########################################################################
 # raio compilation support
 ##########################################################################
 # usage: ./configure --disable-raio-build
@@ -261,7 +281,9 @@ else
 	subdirs2="$subdirs2 examples/usr/hello_world_mt";
 	subdirs2="$subdirs2 examples/usr/hello_world_iov";
 	subdirs2="$subdirs2 examples/usr/hello_world_daemon";
-
+if test "$enable_odp" == "yes"; then
+	subdirs2="$subdirs2 examples/usr/hello_world_odp";
+fi
 if test "$mypj_found_event_headers" == "yes"; then
 	subdirs2="$subdirs2 examples/usr/hello_world_libevent";
 fi
@@ -327,6 +349,9 @@ AC_CONFIG_FILES([Doxyfile])
 AC_CONFIG_FILES([src/usr/Makefile])
 AC_CONFIG_FILES([src/tools/usr/Makefile])
 AC_CONFIG_FILES([examples/usr/hello_world/Makefile])
+if test "$enable_odp" == "yes"; then
+AC_CONFIG_FILES([examples/usr/hello_world_odp/Makefile])
+fi
 AC_CONFIG_FILES([examples/usr/hello_world_mt/Makefile])
 AC_CONFIG_FILES([examples/usr/hello_world_iov/Makefile])
 AC_CONFIG_FILES([examples/usr/hello_world_daemon/Makefile])

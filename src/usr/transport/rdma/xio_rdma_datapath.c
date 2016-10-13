@@ -1542,7 +1542,8 @@ static int xio_rdma_write_req_header(struct xio_rdma_transport *rdma_hndl,
 			sge.addr = uint64_from_ptr(
 					rdma_task->read_reg_mem[i].addr);
 			sge.length  = rdma_task->read_reg_mem[i].length;
-			if (rdma_task->read_reg_mem[i].mr) {
+			if (rdma_task->read_reg_mem[i].mr ||
+			    rdma_hndl->dev->odp.enabled) {
 				mr = xio_rdma_mr_lookup(
 						rdma_task->read_reg_mem[i].mr,
 						rdma_hndl->tcq->dev);
@@ -1565,7 +1566,8 @@ static int xio_rdma_write_req_header(struct xio_rdma_transport *rdma_hndl,
 			sge.addr = uint64_from_ptr(
 					rdma_task->write_reg_mem[i].addr);
 			sge.length  = rdma_task->write_reg_mem[i].length;
-			if (rdma_task->write_reg_mem[i].mr) {
+			if (rdma_task->write_reg_mem[i].mr ||
+			    rdma_hndl->dev->odp.enabled) {
 				mr = xio_rdma_mr_lookup(
 						rdma_task->write_reg_mem[i].mr,
 						rdma_hndl->tcq->dev);
@@ -1745,7 +1747,8 @@ static int xio_rdma_write_rsp_header(struct xio_rdma_transport *rdma_hndl,
 			sge.addr = uint64_from_ptr(
 					rdma_task->write_reg_mem[i].addr);
 			sge.length  = rdma_task->write_reg_mem[i].length;
-			if (rdma_task->write_reg_mem[i].mr) {
+			if (rdma_task->write_reg_mem[i].mr ||
+			    rdma_hndl->dev->odp.enabled) {
 				mr = xio_rdma_mr_lookup(
 						rdma_task->write_reg_mem[i].mr,
 						rdma_hndl->tcq->dev);
@@ -2003,7 +2006,7 @@ static int xio_rdma_write_send_data(struct xio_task *task)
 		sge = &rdma_task->txd.sge[1];
 		for_each_sge(sgtbl, sgtbl_ops, sg, i) {
 			xmr = (struct xio_mr *)sge_mr(sgtbl_ops, sg);
-			if (unlikely(!xmr)) {
+			if (unlikely(!xmr) && !dev->odp.enabled) {
 				ERROR_LOG("failed to find mr on iov\n");
 				goto cleanup;
 			}
@@ -2166,7 +2169,8 @@ static int xio_rdma_prep_rsp_out_data(
 			rdma_task->out_ib_op = XIO_IB_RDMA_READ;
 			/* user provided mr */
 			sg = sge_first(sgtbl_ops, sgtbl);
-			if (sge_mr(sgtbl_ops, sg)) {
+			if (sge_mr(sgtbl_ops, sg) ||
+			    rdma_hndl->dev->odp.enabled) {
 				write_reg_mem = rdma_task->write_reg_mem;
 				for_each_sge(sgtbl, sgtbl_ops, sg, i) {
 					write_reg_mem->addr =
@@ -2337,7 +2341,7 @@ static int xio_rdma_prep_req_out_data(
 		rdma_task->out_ib_op = XIO_IB_RDMA_READ;
 		/* user provided mr */
 		sg = sge_first(sgtbl_ops, sgtbl);
-		if (sge_mr(sgtbl_ops, sg)) {
+		if (sge_mr(sgtbl_ops, sg) || rdma_hndl->dev->odp.enabled) {
 			for_each_sge(sgtbl, sgtbl_ops, sg, i) {
 				rdma_task->write_reg_mem[i].addr =
 					sge_addr(sgtbl_ops, sg);
@@ -2463,7 +2467,7 @@ static int xio_rdma_prep_req_in_data(
 		/* user provided mr */
 		rdma_task->in_ib_op = XIO_IB_RDMA_WRITE;
 		sg = sge_first(sgtbl_ops, sgtbl);
-		if (sge_mr(sgtbl_ops, sg)) {
+		if (sge_mr(sgtbl_ops, sg) || rdma_hndl->dev->odp.enabled) {
 			for_each_sge(sgtbl, sgtbl_ops, sg, i) {
 				rdma_task->read_reg_mem[i].addr =
 					sge_addr(sgtbl_ops, sg);
@@ -3667,7 +3671,8 @@ static int xio_sched_rdma_rd(struct xio_rdma_transport *rdma_hndl,
 			return -1;
 		}
 		for_each_sge(sgtbl, sgtbl_ops, sg, i) {
-			if (!sge_mr(sgtbl_ops, sg)) {
+			if (!sge_mr(sgtbl_ops, sg) &&
+			    !rdma_hndl->dev->odp.enabled) {
 				ERROR_LOG("application has not provided mr\n");
 				ERROR_LOG("rdma read is ignored\n");
 				task->status = XIO_E_NO_USER_MR;
@@ -3840,7 +3845,7 @@ static int xio_sched_rdma_wr_req(struct xio_rdma_transport *rdma_hndl,
 	sg		= sge_first(sgtbl_ops, sgtbl);
 
 	/* user did not provided mr */
-	if (!sge_mr(sgtbl_ops, sg)) {
+	if (!sge_mr(sgtbl_ops, sg) && !rdma_hndl->dev->odp.enabled) {
 		if (!rdma_hndl->rdma_mempool) {
 			xio_set_error(XIO_E_NO_BUFS);
 			ERROR_LOG(

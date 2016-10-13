@@ -365,6 +365,14 @@ int xio_dereg_mr_by_dev(struct xio_device *dev)
 	LIST_HEAD(tmp_list);
 
 	spin_lock(&dev_list_lock);
+	if (dev->odp.enabled) {
+		retval = ibv_dereg_mr(dev->odp.mr);
+		if (unlikely(retval != 0)) {
+			xio_set_error(errno);
+			ERROR_LOG("ibv_dereg_mr failed, %m\n");
+		}
+		dev->odp.enabled = 0;
+	}
 	if (list_empty(&dev->xm_list)) {
 		spin_unlock(&dev_list_lock);
 		return 0;
@@ -685,3 +693,76 @@ cleanup:
 	*len = 0;
 	return -1;
 }
+
+#ifdef ENABLE_ODP
+/*---------------------------------------------------------------------------*/
+/* xio_reg_odp								     */
+/*---------------------------------------------------------------------------*/
+inline void xio_reg_odp(struct xio_device *dev)
+{
+	struct ibv_exp_reg_mr_in in;
+
+	in.pd = dev->pd;
+	in.addr = 0;
+	in.length = IBV_EXP_IMPLICIT_MR_SIZE;
+	in.exp_access = IBV_EXP_ACCESS_ON_DEMAND |
+			IBV_EXP_ACCESS_LOCAL_WRITE |
+			IBV_EXP_ACCESS_REMOTE_WRITE |
+			IBV_EXP_ACCESS_REMOTE_READ;
+	in.comp_mask = 0;
+	dev->odp.mr = ibv_xio_reg_mr(&in);
+	if (!dev->odp.mr) {
+		xio_set_error(xio_errno());
+		ERROR_LOG("Failed registering ODP mr");
+		if (errno == ENOMEM)
+			xio_validate_ulimit_memlock();
+		return;
+	}
+	dev->odp.enabled = 1;
+}
+
+/*---------------------------------------------------------------------------*/
+/* is_odp_supported							     */
+/*---------------------------------------------------------------------------*/
+inline int xio_is_odp_supported(struct xio_device *dev)
+{
+	uint32_t attr;
+	uint32_t mask = IBV_EXP_ODP_SUPPORT_SEND |
+			IBV_EXP_ODP_SUPPORT_RECV |
+			IBV_EXP_ODP_SUPPORT_WRITE|
+			IBV_EXP_ODP_SUPPORT_READ;
+
+	if (!test_bits(IBV_EXP_DEVICE_ODP,
+		       &dev->device_attr.exp_device_cap_flags)) {
+		TRACE_LOG("ODP not supported mask is %x\n",
+			  dev->device_attr.exp_device_cap_flags);
+		return 0;
+	}
+	if (!test_bits(IBV_EXP_ODP_SUPPORT_IMPLICIT,
+		       &dev->device_attr.odp_caps.general_odp_caps)) {
+		TRACE_LOG("ODP not supported mask is %x\n",
+			  dev->device_attr.odp_caps.general_odp_caps);
+		return 0;
+	}
+	attr = dev->device_attr.odp_caps.per_transport_caps.rc_odp_caps;
+	if (!test_bits(mask, &attr)) {
+		TRACE_LOG("ODP not supported mask is %x\n", attr);
+		return 0;
+	}
+	TRACE_LOG("ODP supported\n");
+	return 1;
+}
+
+#else
+inline int xio_is_odp_supported(struct xio_device *dev)
+{
+	return 0;
+}
+/*---------------------------------------------------------------------------*/
+/* xio_reg_odp								     */
+/*---------------------------------------------------------------------------*/
+inline void xio_reg_odp(struct xio_device *dev)
+{
+
+}
+#endif

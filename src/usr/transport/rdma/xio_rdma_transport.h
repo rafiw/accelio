@@ -117,9 +117,14 @@ extern spinlock_t		dev_list_lock;
 #        define IBV_XIO_ACCESS_ALLOCATE_MR	(0)
 #        define IBV_IS_MPAGES_AVAIL(_attr)	(0)
 #    endif
+#    ifdef ENABLE_ODP
+#        define ibv_xio_device_attr		ibv_exp_device_attr
+#        define ibv_xio_query_device		ibv_exp_query_device
+#    else
+#        define ibv_xio_device_attr		ibv_device_attr
+#        define ibv_xio_query_device		ibv_query_device
+#    endif
 
-#    define ibv_xio_device_attr			ibv_device_attr
-#    define ibv_xio_query_device		ibv_query_device
 
 struct ibv_exp_reg_mr_in {
 	struct ibv_pd *pd;
@@ -158,6 +163,7 @@ struct xio_rdma_options {
 	int			max_in_iovsz;
 	int			max_out_iovsz;
 	int			qp_cap_max_inline_data;
+	int			enable_odp;
 };
 
 #define XIO_REQ_HEADER_VERSION	1
@@ -328,6 +334,12 @@ struct xio_srq {
 	int				pad;
 };
 
+struct xio_odp {
+	int				enabled;
+	int				pad;
+	struct ibv_mr			*mr;
+};
+
 struct xio_device {
 	struct list_head		cq_list;
 	struct list_head		dev_list_entry;    /* list of all
@@ -337,6 +349,7 @@ struct xio_device {
 	struct ibv_pd			*pd;
 	struct ibv_xio_device_attr	device_attr;
 	struct list_head		xm_list; /* list of xio_mr_elem */
+	struct xio_odp			odp;
 	struct kref			kref;
 	uint32_t			kref_pad;
 };
@@ -579,4 +592,7 @@ int xio_rkey_table_create(struct xio_device *old, struct xio_device *_new,
 
 void xio_rdma_poll_completions(struct xio_cq *tcq, int timeout_us);
 
+inline int xio_is_odp_supported(struct xio_device *dev);
+
+inline void xio_reg_odp(struct xio_device *dev);
 #endif  /* XIO_RDMA_TRANSPORT_H */

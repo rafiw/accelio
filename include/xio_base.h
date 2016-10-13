@@ -1293,6 +1293,24 @@ enum xio_optname {
 	 * passed to ib(v)_create_qp
 	 */
 	XIO_OPTNAME_QP_CAP_MAX_INLINE_DATA,
+	/** This option enables ODP when using supported HW devices.
+	* ODP is a drive feature that removes the need to register the
+	* memory before doing rdma operations. Performance may decrease
+	* a little, but the application doesn't need to handle mr.
+	* This only effects the user buffers provided by the user in the
+	* @ref assign_data_in_buf which in this case can be memory simply
+	* allocated by malloc().
+	* The rdma mempool will continue to use registered memory.
+	* @note you must run on supported HW.
+	* @note If in @ref assign_data_in_buf clbk if you supply unregistered
+	* memory and ODP is not available the receive will fail, XIO will
+	* not register your memory.
+	* @note you can still supply registered memory in
+	*	@ref assign_data_in_buf clbk
+	* @note SRQ is not supported with ODP
+	* @note default is disabled
+	*/
+	XIO_OPTNAME_ENABLE_ODP,
 
 	/* XIO_OPTLEVEL_TCP */
 	/** check tcp mr validity. Disable sanity check for proper MRs in case
