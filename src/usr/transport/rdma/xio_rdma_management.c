@@ -342,8 +342,10 @@ static struct xio_srq *xio_srq_get(struct xio_rdma_transport *rdma_hndl,
 	}
 
 	memset(&srq_init_attr, 0, sizeof(srq_init_attr));
-
-	srq_init_attr.attr.max_wr = SRQ_DEPTH;
+	if (rdma_hndl->base.ctx->rq_depth)
+		srq_init_attr.attr.max_wr = rdma_hndl->base.ctx->rq_depth;
+	else
+		srq_init_attr.attr.max_wr = SRQ_DEPTH;
 	srq_init_attr.attr.max_sge = 1;
 
 	srq->srq = ibv_create_srq(rdma_hndl->dev->pd, &srq_init_attr);
