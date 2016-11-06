@@ -33,15 +33,16 @@ AC_ARG_ENABLE([rdma],
 			      [enable rdma transport - default:yes ])],
 			       [enable_rdma=$enableval],
 			       [enable_rdma=yes])
-AC_MSG_RESULT([$enable_rdma])
 
 # Checks for header files.
 if test "$enable_rdma" = "yes"; then
 	AC_CHECK_HEADERS([infiniband/verbs.h rdma/rdma_cma.h],
-			 [mypj_found_verbs_headers=yes; break;])
+			 [mypj_found_verbs_headers=yes; break;],
+			 [AC_MSG_ERROR([verbs\rdmacm headers not found, please compile with enable-rdma=no])])
 else
 	mypj_found_verbs_headers=no
 fi
+AC_MSG_RESULT([$enable_rdma])
 
 AC_CHECK_HEADERS([numa.h],
 		 [mypj_found_numa_headers=yes; break;])
