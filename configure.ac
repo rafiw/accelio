@@ -234,7 +234,6 @@ if test "$enable_kernel_module" != "no"; then
 	AC_CONFIG_SUBDIRS([tests/kernel/hello_test])
 	AC_CONFIG_SUBDIRS([tests/kernel/hello_test_lat])
 	AC_CONFIG_SUBDIRS([tests/kernel/hello_test_ow])
-	AC_CONFIG_SUBDIRS([tests/kernel/direct_rdma_test])
 	if test "$enable_raio_build" == "yes"; then
 		AC_CONFIG_SUBDIRS([examples/raio/kernel/nbdx])
 	fi
